@@ -1,0 +1,8 @@
+LIBRARY openwebrtc_gst.dll
+EXPORTS
+owr_gst_media_source_get_type                          @1
+owr_gst_media_source_new                               @2
+owr_gst_audio_renderer_get_type                        @3
+owr_gst_audio_renderer_new                             @4
+owr_gst_video_renderer_get_type                        @5
+owr_gst_video_renderer_new                             @6
