@@ -700,7 +700,7 @@ static gboolean enumerate_video_source_devices(GClosure *callback)
 	OwrLocalMediaSource *source;
 	GList *sources = NULL;
 	source = _owr_local_media_source_new_cached(0, "video0",
-		OWR_MEDIA_TYPE_VIDEO, OWR_SOURCE_TYPE_TEST);
+		OWR_MEDIA_TYPE_VIDEO, OWR_SOURCE_TYPE_NET);
 	sources = g_list_prepend(sources, source);
 	sources = g_list_reverse(sources);
 	_owr_utils_call_closure_with_list(callback, sources);

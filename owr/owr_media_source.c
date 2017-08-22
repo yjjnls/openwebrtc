@@ -270,6 +270,7 @@ static GstElement *owr_media_source_request_source_default(OwrMediaSource *media
     gchar *bin_name;
     guint source_id;
     gchar *sink_name, *source_name;
+    OwrSourceType source_type = OWR_SOURCE_TYPE_UNKNOWN;
 
     g_return_val_if_fail(media_source->priv->source_bin, NULL);
     g_return_val_if_fail(media_source->priv->source_tee, NULL);
@@ -282,9 +283,12 @@ static GstElement *owr_media_source_request_source_default(OwrMediaSource *media
     bin_name = g_strdup_printf("source-bin-%u", source_id);
     source_bin = gst_bin_new(bin_name);
     g_free(bin_name);
-
+    g_object_get(media_source, "type", &source_type, NULL);
     CREATE_ELEMENT_WITH_ID(queue_pre, "queue", "source-queue", source_id);
+    if (source_type != OWR_SOURCE_TYPE_NET)
+    {
     CREATE_ELEMENT_WITH_ID(capsfilter, "capsfilter", "source-output-capsfilter", source_id);
+    }
     CREATE_ELEMENT_WITH_ID(queue_post, "queue", "source-output-queue", source_id);
 
     CREATE_ELEMENT_WITH_ID(sink_queue, "queue", "sink-queue", source_id);
@@ -315,6 +319,8 @@ static GstElement *owr_media_source_request_source_default(OwrMediaSource *media
         GstStructure *s;
         GstCapsFeatures *features;
 
+        if (source_type != OWR_SOURCE_TYPE_NET)
+        {
         s = gst_caps_get_structure(caps, 0);
         if (gst_structure_has_field(s, "framerate")) {
             gint fps_n = 0, fps_d = 0;
@@ -329,6 +335,7 @@ static GstElement *owr_media_source_request_source_default(OwrMediaSource *media
             gst_bin_add(GST_BIN(source_bin), videorate);
         }
         g_object_set(capsfilter, "caps", caps, NULL);
+        }
 
         features = gst_caps_get_features(caps, 0);
         if (gst_caps_features_contains(features, GST_CAPS_FEATURE_MEMORY_GL_MEMORY)) {
@@ -347,6 +354,13 @@ static GstElement *owr_media_source_request_source_default(OwrMediaSource *media
             }
             LINK_ELEMENTS(glupload, videoconvert);
         } else {
+            if (source_type == OWR_SOURCE_TYPE_NET)
+            {
+                gst_bin_add_many(GST_BIN(source_bin),
+                    queue_pre, queue_post, NULL);
+                LINK_ELEMENTS(queue_pre, queue_post);
+            }
+            else{
             GstElement *gldownload;
 
             CREATE_ELEMENT_WITH_ID(gldownload, "gldownload", "source-gldownload", source_id);
@@ -362,10 +376,13 @@ static GstElement *owr_media_source_request_source_default(OwrMediaSource *media
             }
             LINK_ELEMENTS(gldownload, videoscale);
             LINK_ELEMENTS(videoscale, videoconvert);
+            }
         }
+        if (source_type != OWR_SOURCE_TYPE_NET)
+        {
         LINK_ELEMENTS(videoconvert, capsfilter);
         LINK_ELEMENTS(capsfilter, queue_post);
-
+        }
         break;
         }
     case OWR_MEDIA_TYPE_UNKNOWN:

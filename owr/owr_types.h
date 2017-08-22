@@ -54,7 +54,8 @@ typedef enum _OwrMediaType {
 typedef enum _OwrSourceType {
     OWR_SOURCE_TYPE_UNKNOWN,
     OWR_SOURCE_TYPE_CAPTURE,
-    OWR_SOURCE_TYPE_TEST
+    OWR_SOURCE_TYPE_TEST,
+	OWR_SOURCE_TYPE_NET
 } OwrSourceType;
 
 typedef enum _OwrAdaptationType {
