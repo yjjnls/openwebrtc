@@ -60,7 +60,7 @@ GST_DEBUG_CATEGORY_EXTERN(_owrsession_debug);
 
 #define OWR_SESSION_GET_PRIVATE(obj)    (G_TYPE_INSTANCE_GET_PRIVATE((obj), OWR_TYPE_SESSION, OwrSessionPrivate))
 
-static void owr_message_origin_interface_init(OwrMessageOriginInterface *interface);
+static void owr_message_origin_interface_init(OwrMessageOriginInterface *i);
 
 G_DEFINE_TYPE_WITH_CODE(OwrSession, owr_session, G_TYPE_OBJECT,
     G_IMPLEMENT_INTERFACE(OWR_TYPE_MESSAGE_ORIGIN, owr_message_origin_interface_init))
@@ -322,9 +322,9 @@ static gpointer owr_session_get_bus_set(OwrMessageOrigin *origin)
     return OWR_SESSION(origin)->priv->message_origin_bus_set;
 }
 
-static void owr_message_origin_interface_init(OwrMessageOriginInterface *interface)
+static void owr_message_origin_interface_init(OwrMessageOriginInterface *i)
 {
-    interface->get_bus_set = owr_session_get_bus_set;
+    i->get_bus_set = owr_session_get_bus_set;
 }
 
 static void owr_session_init(OwrSession *session)

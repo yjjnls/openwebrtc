@@ -42,7 +42,7 @@
 #include <libsoup/soup.h>
 #include <string.h>
 
-#define SERVER_URL "http://demo.openwebrtc.org"
+#define SERVER_URL "http://127.0.0.1:8080"//"http://demo.openwebrtc.org"
 
 #define ENABLE_PCMA TRUE
 #define ENABLE_PCMU TRUE

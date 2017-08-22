@@ -92,7 +92,7 @@ static guint next_transport_agent_id = 1;
 
 #define OWR_TRANSPORT_AGENT_GET_PRIVATE(obj)    (G_TYPE_INSTANCE_GET_PRIVATE((obj), OWR_TYPE_TRANSPORT_AGENT, OwrTransportAgentPrivate))
 
-static void owr_message_origin_interface_init(OwrMessageOriginInterface *interface);
+static void owr_message_origin_interface_init(OwrMessageOriginInterface *i);
 
 G_DEFINE_TYPE_WITH_CODE(OwrTransportAgent, owr_transport_agent, G_TYPE_OBJECT,
     G_IMPLEMENT_INTERFACE(OWR_TYPE_MESSAGE_ORIGIN, owr_message_origin_interface_init))
@@ -355,9 +355,9 @@ static gpointer owr_transport_agent_get_bus_set(OwrMessageOrigin *origin)
     return OWR_TRANSPORT_AGENT(origin)->priv->message_origin_bus_set;
 }
 
-static void owr_message_origin_interface_init(OwrMessageOriginInterface *interface)
+static void owr_message_origin_interface_init(OwrMessageOriginInterface *i)
 {
-    interface->get_bus_set = owr_transport_agent_get_bus_set;
+    i->get_bus_set = owr_transport_agent_get_bus_set;
 }
 
 /* FIXME: Copy from owr/orw.c without any error handling whatsoever */
@@ -410,7 +410,9 @@ static gboolean bus_call(GstBus *bus, GstMessage *msg, gpointer user_data)
         /*GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, "pipeline.dot");*/
 
         if (!is_warning) {
+#ifndef _MSC_VER
             OWR_POST_ERROR(transport_agent, PROCESSING_ERROR, NULL);
+#endif
         }
 
         g_error_free(error);
