@@ -1,7 +1,7 @@
 cmake_minimum_required( VERSION 2.8 )
 
 project( openwebrtc )
-set(VERSION 0.3.0-1)
+set(VERSION 0.3.0-2)
 set(OWR_API_VERSION 0.3)
 include( AutoCMake )
 
