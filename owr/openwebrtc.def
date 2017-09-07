@@ -1,4 +1,4 @@
-LIBRARY openwebrtc-0.3.dll
+LIBRARY openwebrtc-lite-0.3.dll
 EXPORTS
 owr_adaptation_type_get_type                             @1
 owr_audio_payload_get_type                               @2
