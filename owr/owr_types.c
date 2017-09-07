@@ -79,6 +79,7 @@ GType owr_source_type_get_type(void)
         {OWR_SOURCE_TYPE_UNKNOWN, "Unknown source", "unknown"},
         {OWR_SOURCE_TYPE_CAPTURE, "Capture source", "capture"},
         {OWR_SOURCE_TYPE_TEST, "Test source", "test"},
+		{OWR_SOURCE_TYPE_NET, "Net source", "net"},
         {0, NULL, NULL}
     };
     static volatile GType id = 0;

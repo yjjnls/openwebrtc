@@ -32,8 +32,9 @@
 
 #define ENABLE_SINGLE_RTSPSRC FALSE
 #define ENABLE_DOUBLE_TESTSRC_TESTSRC FALSE
-#define ENABLE_DOUBLE_TESTSRC_RTSPSRC TRUE
+#define ENABLE_DOUBLE_TESTSRC_RTSPSRC FALSE
 #define ENABLE_DOUBLE_RTSPSRC_RTSPSRC FALSE
+#define ENABLE_EMPTY_SOURCE_BIN TRUE
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -48,6 +49,9 @@
 #include "owr_private.h"
 #include "owr_types.h"
 #include "owr_utils.h"
+
+#include "owr_inter_src.h"
+#include "owr_inter_sink.h"
 
 #include <gst/gst.h>
 #include <gst/audio/streamvolume.h>
@@ -127,6 +131,12 @@ enum {
     N_PROPERTIES
 };
 
+enum {
+	SIGNAL_ON_SOURCE,
+	N_SIGNALS
+};
+static guint owr_local_media_source_signals[N_SIGNALS] = { 0 };
+
 static void owr_local_media_source_finalize(GObject *object)
 {
     OwrLocalMediaSource *source = OWR_LOCAL_MEDIA_SOURCE(object);
@@ -167,6 +177,10 @@ static void owr_local_media_source_class_init(OwrLocalMediaSourceClass *klass)
         g_param_spec_boolean("mute", "Mute",
             "Mute state (only applicable to audio sources)",
             FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+	owr_local_media_source_signals[SIGNAL_ON_SOURCE] = g_signal_new("on-source",
+		G_OBJECT_CLASS_TYPE(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
+		NULL, G_TYPE_NONE, 1, GST_TYPE_BIN);
 }
 
 static gpointer owr_local_media_source_get_bus_set(OwrMessageOrigin *origin)
@@ -831,6 +845,47 @@ static GstElement *owr_local_media_source_request_source(OwrMediaSource *media_s
 				srcpad = gst_element_get_static_pad(parse, "src");
 				gst_element_add_pad(source, gst_ghost_pad_new("src", srcpad));
 				gst_object_unref(srcpad);
+				}
+				else if (ENABLE_EMPTY_SOURCE_BIN)
+				{
+					GstElement *inter_source, *source_queue;
+					GstPad *srcpad, *bin_pad, *sinkpad;
+					GstElement *inter_sink, *sink_queue, *sink_bin;
+
+					inter_source = g_object_new(OWR_TYPE_INTER_SRC, "name", "inter-source", NULL);
+					inter_sink = g_object_new(OWR_TYPE_INTER_SINK, "name", "inter-sink", NULL);
+
+					g_weak_ref_set(&OWR_INTER_SRC(inter_source)->sink_sinkpad, OWR_INTER_SINK(inter_sink)->sinkpad);
+					g_weak_ref_set(&OWR_INTER_SINK(inter_sink)->src_srcpad, OWR_INTER_SRC(inter_source)->internal_srcpad);
+
+					source = gst_bin_new("video-source");
+
+					source_queue = gst_element_factory_make("queue", "source-output-queue");
+					gst_bin_add_many(GST_BIN(source), inter_source, source_queue, NULL);
+					LINK_ELEMENTS(inter_source, source_queue);
+					
+					srcpad = gst_element_get_static_pad(source_queue, "src");
+					bin_pad = gst_ghost_pad_new("src", srcpad);
+					gst_object_unref(srcpad);
+					gst_pad_set_active(bin_pad, TRUE);
+					gst_element_add_pad(source, bin_pad);
+					bin_pad = NULL;
+					
+					sink_bin = gst_bin_new("source-sink-bin");
+					sink_queue = gst_element_factory_make("queue", "sink-input-queue");
+					gst_bin_add_many(GST_BIN(sink_bin), sink_queue, inter_sink, NULL);
+					gst_element_sync_state_with_parent(sink_queue);
+					gst_element_sync_state_with_parent(inter_sink);
+					LINK_ELEMENTS(sink_queue, inter_sink);
+
+					sinkpad = gst_element_get_static_pad(sink_queue, "sink");
+					bin_pad = gst_ghost_pad_new("sink", sinkpad);
+					gst_object_unref(sinkpad);
+					gst_pad_set_active(bin_pad, TRUE);
+					gst_element_add_pad(sink_bin, bin_pad);
+					bin_pad = NULL;
+
+					g_signal_emit_by_name(local_source, "on-source", sink_bin);
 				}
 				else if (ENABLE_DOUBLE_TESTSRC_TESTSRC)
 				{

@@ -42,13 +42,13 @@
 #include <libsoup/soup.h>
 #include <string.h>
 
-#define SERVER_URL "http://127.0.0.1:8080"//"http://demo.openwebrtc.org"
+#define SERVER_URL "http://127.0.0.1:8080"
 
 #define ENABLE_PCMA TRUE
 #define ENABLE_PCMU TRUE
 #define ENABLE_OPUS TRUE
 #define ENABLE_H264 TRUE
-#define ENABLE_VP8  TRUE
+#define ENABLE_VP8  FALSE
 
 static GList *local_sources, *renderers;
 static OwrTransportAgent *transport_agent;
@@ -699,6 +699,7 @@ static void eventstream_line_read(GDataInputStream *input_stream, GAsyncResult *
             }
         } else if (buffer) {
             if (g_str_has_prefix(buffer->str, "event:user-")) {
+				g_print("%s", buffer->str);
                 pos = g_strstr_len(buffer->str, buffer->len, "\n");
                 parser = json_parser_new();
                 if (json_parser_load_from_data(parser, pos, strlen(pos), NULL)) {
@@ -772,8 +773,8 @@ static void got_local_sources(GList *sources, gchar *url)
 {
     local_sources = g_list_copy(sources);
     transport_agent = owr_transport_agent_new(FALSE);
-    owr_transport_agent_add_helper_server(transport_agent, OWR_HELPER_SERVER_TYPE_STUN,
-        "stun.services.mozilla.com", 3478, NULL, NULL);
+	//owr_transport_agent_add_helper_server(transport_agent, OWR_HELPER_SERVER_TYPE_STUN,
+    //    "stun.services.mozilla.com", 3478, NULL, NULL);
     if (url) {
         send_eventsource_request(url);
         g_free(url);
@@ -791,9 +792,14 @@ gint main(gint argc, gchar **argv)
 
     session_id = argv[1];
     client_id = g_random_int();
+	
+	//BIG ISSUE !!!! 
+	//if we change g_strdup_printf(SERVER_URL"/stoc/%s/%u", session_id, client_id);
+	//as g_strdup_printf("%s/stoc/%s/%u", SERVER_URL,session_id, client_id);
+	//Failed Send answer to server will be occured
     url = g_strdup_printf(SERVER_URL"/stoc/%s/%u", session_id, client_id);
     owr_init(NULL);
-    owr_get_capture_sources(OWR_MEDIA_TYPE_AUDIO | OWR_MEDIA_TYPE_VIDEO,
+    owr_get_capture_sources(/*OWR_MEDIA_TYPE_AUDIO |*/ OWR_MEDIA_TYPE_VIDEO,
         (OwrCaptureSourcesCallback)got_local_sources, url);
     owr_run();
     return 0;
