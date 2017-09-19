@@ -74,13 +74,17 @@
 #include <stdio.h>
 #include <string.h>
 
+#define ENABLE_SCREAMQUEUE TRUE
+
 GST_DEBUG_CATEGORY_EXTERN(_owrtransportagent_debug);
 GST_DEBUG_CATEGORY_EXTERN(_owrsession_debug);
 #define GST_CAT_DEFAULT _owrtransportagent_debug
 
 #define DEFAULT_ICE_CONTROLLING_MODE TRUE
 #define GST_RTCP_RTPFB_TYPE_SCREAM 18
-
+#define TEST_RTX_SEND
+//#define ENABLE_DROP_PACKET
+#define ENABLE_RTPRTXSEND_INFO_PRINT
 enum {
     PROP_0,
     PROP_ICE_CONTROLLING_MODE,
@@ -192,6 +196,7 @@ static void owr_transport_agent_set_property(GObject *object, guint property_id,
 static void owr_transport_agent_get_property(GObject *object, guint property_id,
     GValue *value, GParamSpec *pspec);
 
+static void on_new_sender_ssrc(GstElement *rtpbin, guint session_id, guint ssrc, OwrTransportAgent *transport_agent);
 
 static void add_helper_server_info(GResolver *resolver, GAsyncResult *result, GHashTable *info);
 static void update_helper_servers(OwrTransportAgent *transport_agent, guint stream_id);
@@ -490,6 +495,7 @@ static void owr_transport_agent_init(OwrTransportAgent *transport_agent)
     g_signal_connect(priv->rtpbin, "request-aux-sender", G_CALLBACK(on_rtpbin_request_aux_sender), transport_agent);
     g_signal_connect(priv->rtpbin, "request-aux-receiver", G_CALLBACK(on_rtpbin_request_aux_receiver), transport_agent);
     g_signal_connect(priv->rtpbin, "on-ssrc-active", G_CALLBACK(on_ssrc_active), transport_agent);
+	g_signal_connect(priv->rtpbin, "on-new-sender-ssrc", G_CALLBACK(on_new_sender_ssrc), transport_agent);
     g_signal_connect(priv->rtpbin, "new-jitterbuffer", G_CALLBACK(on_new_jitterbuffer), transport_agent);
 
     g_signal_connect(priv->transport_bin, "pad-added", G_CALLBACK(on_transport_bin_pad_added), transport_agent);
@@ -1153,6 +1159,12 @@ static GstElement *add_nice_element(OwrTransportAgent *transport_agent, guint st
         ? "sink" : "src", stream_id);
     nice_element = gst_element_factory_make(is_sink ? "nicesink" : "nicesrc", element_name);
     g_free(element_name);
+#ifdef ENABLE_MAXBITRATE
+	if (is_sink)
+	{
+		g_object_set(nice_element, "max-bitrate", 1024*1024, NULL);
+	}
+#endif
 
     g_object_set(nice_element, "agent", transport_agent->priv->nice_agent,
         "stream", stream_id,
@@ -1401,6 +1413,9 @@ static void link_rtpbin_to_send_output_bin(OwrTransportAgent *transport_agent, g
     OwrMediaSession *media_session;
     SendBinInfo *send_bin_info;
     GstElement *scream_queue;
+#ifdef TEST_RTX_SEND
+	GstElement *identity;
+#endif
 
     g_return_if_fail(OWR_IS_TRANSPORT_AGENT(transport_agent));
 
@@ -1415,13 +1430,13 @@ static void link_rtpbin_to_send_output_bin(OwrTransportAgent *transport_agent, g
     g_return_if_fail(!dtls_srtp_bin_rtcp || GST_IS_ELEMENT(dtls_srtp_bin_rtcp));
 
     media_session = OWR_MEDIA_SESSION(get_session(transport_agent, stream_id));
-
     scream_queue = gst_bin_get_by_name(GST_BIN(send_output_bin), "screamqueue");
     g_assert(scream_queue);
+	if (ENABLE_SCREAMQUEUE) {
     g_signal_connect_object(scream_queue, "on-bitrate-change", G_CALLBACK(on_bitrate_change),
         media_session, 0);
         /* TODO: Move connect to prepare_transport_bin_send_elements */
-
+	}
     /* RTP */
     if (rtp) {
         rtpbin_pad_name = g_strdup_printf("send_rtp_src_%u", stream_id);
@@ -1431,9 +1446,19 @@ static void link_rtpbin_to_send_output_bin(OwrTransportAgent *transport_agent, g
         g_assert(GST_IS_PAD(sink_pad));
         ghost_pad_and_add_to_bin(sink_pad, send_output_bin, dtls_srtp_pad_name);
         gst_object_unref(sink_pad);
-
+#ifndef TEST_RTX_SEND
         linked_ok = gst_element_link_pads(transport_agent->priv->rtpbin, rtpbin_pad_name,
             send_output_bin, dtls_srtp_pad_name);
+#else
+		identity = gst_element_factory_make("identity", NULL);
+#ifdef ENABLE_DROP_PACKET
+		g_object_set(identity, "drop-probability", 0.01, NULL);
+#endif
+		gst_bin_add(GST_BIN(transport_agent->priv->transport_bin), identity);
+		linked_ok = gst_element_link_pads(transport_agent->priv->rtpbin, rtpbin_pad_name, identity, "sink");
+		linked_ok &= gst_element_link_pads(identity, "src", send_output_bin, dtls_srtp_pad_name);
+		gst_element_sync_state_with_parent(identity);
+#endif
         g_warn_if_fail(linked_ok);
 
         g_free(rtpbin_pad_name);
@@ -1525,11 +1550,17 @@ static void prepare_transport_bin_send_elements(OwrTransportAgent *transport_age
     }
 
     media_session = OWR_MEDIA_SESSION(get_session(transport_agent, stream_id));
+	if(ENABLE_SCREAMQUEUE){
     scream_queue = gst_element_factory_make("screamqueue", "screamqueue");
     g_assert(scream_queue);
     g_object_set(scream_queue, "scream-controller-id", transport_agent->priv->agent_id, NULL);
     g_signal_connect(scream_queue, "on-payload-adaptation-request",
         (GCallback)on_payload_adaptation_request, media_session);
+	}
+	else
+	{
+		scream_queue = gst_element_factory_make("queue", "screamqueue");
+	}
     gst_bin_add(GST_BIN(send_output_bin), scream_queue);
 
     pending_session_info->nice_sink_rtp = nice_element = add_nice_element(transport_agent, stream_id, TRUE, FALSE, send_output_bin);
@@ -1641,7 +1672,7 @@ static void prepare_transport_bin_receive_elements(OwrTransportAgent *transport_
         rtpbin_pad_name);
 #else
     identity = gst_element_factory_make("identity", NULL);
-    g_object_set(identity, "drop-probability", 0.01, NULL);
+    g_object_set(identity, "drop-probability", 0.1, NULL);
     gst_bin_add(GST_BIN(transport_agent->priv->transport_bin), identity);
     gst_element_link_pads(receive_input_bin, "rtp_src", identity, "sink");
     linked_ok = gst_element_link_pads(identity, "src", transport_agent->priv->rtpbin,
@@ -1819,6 +1850,7 @@ static void set_send_ssrc_and_cname(OwrTransportAgent *transport_agent, OwrMedia
     g_object_get(session, "internal-ssrc", &send_ssrc, "sdes", &sdes, NULL);
     g_object_set(media_session, "send-ssrc", send_ssrc, "cname",
         gst_structure_get_string(sdes, "cname"), NULL);
+	gchar * str_sdes = gst_structure_to_string(sdes);
     gst_structure_free(sdes);
     g_object_unref(session);
 }
@@ -2401,6 +2433,9 @@ static void handle_new_send_payload(OwrTransportAgent *transport_agent, OwrMedia
         gst_object_unref(sink_pad);
         g_free(name);
     }
+	GST_DEBUG_BIN_TO_DOT_FILE(transport_agent->priv->transport_bin, GST_DEBUG_GRAPH_SHOW_ALL, "transport_agent_transportbin");
+	GST_DEBUG_BIN_TO_DOT_FILE(transport_agent->priv->rtpbin, GST_DEBUG_GRAPH_SHOW_ALL, "transport_agent_rtpbin");
+	GST_DEBUG_BIN_TO_DOT_FILE(transport_agent->priv->pipeline, GST_DEBUG_GRAPH_SHOW_ALL, "transport_agent_pipeline");
 }
 
 static void on_new_remote_candidate(OwrTransportAgent *transport_agent, gboolean forced, OwrSession *session)
@@ -2807,6 +2842,19 @@ static GstElement * create_aux_bin(gchar *prefix, GstElement *rtx, guint session
     return bin;
 }
 
+
+static gboolean on_print_rtprtxsend_info(gpointer sender)
+{
+	guint num_rtx_requests = 0;
+	guint num_rtx_packets = 0;
+	g_object_get(sender, "num-rtx-requests", &num_rtx_requests, "num-rtx-packets", &num_rtx_packets, NULL);
+
+	g_message("rtprtxsend@num-rtx-requests: %u, num-rtx-packets: %u\n", num_rtx_requests, num_rtx_packets);
+
+	return TRUE;
+
+}
+
 static GstElement * on_rtpbin_request_aux_sender(G_GNUC_UNUSED GstElement *rtpbin, guint session_id, OwrTransportAgent *transport_agent)
 {
     OwrMediaSession *media_session;
@@ -2848,6 +2896,26 @@ static GstElement * on_rtpbin_request_aux_sender(G_GNUC_UNUSED GstElement *rtpbi
     g_object_get(payload, "rtx-time", &rtx_time, NULL);
     if (rtx_time)
         g_object_set(rtxsend, "max-size-time", rtx_time, NULL);
+	{
+		GstStructure *ssrc_map;
+
+
+	g_object_set(rtxsend, "max-size-time", 60000, NULL);
+	g_object_set(rtxsend, "max-size-packets", 4000, NULL);
+	g_timeout_add(10000, (GSourceFunc)on_print_rtprtxsend_info, rtxsend);
+
+	guint send_ssrc = 0;
+	gchar *cname = NULL;
+	g_object_get(media_session, "send-ssrc", &send_ssrc, "cname", &cname, NULL);
+	g_message("on_rtpbin_request_aux_sender@send-ssrc(%lld),cname(%s)\n", send_ssrc, cname);
+	
+	ssrc_map = gst_structure_new_empty("application/x-rtp-ssrc-map");
+	tmp = g_strdup_printf("%u", send_ssrc);
+	gst_structure_set(ssrc_map, tmp, G_TYPE_UINT, (guint)2231627014, NULL);
+	g_free(tmp);
+	g_object_set(rtxsend, "ssrc-map", ssrc_map, NULL);
+	gst_structure_free(ssrc_map);
+	}
 
     g_object_unref(payload);
     return create_aux_bin("rtprtxsend", rtxsend, session_id);
@@ -2911,6 +2979,17 @@ static void print_rtcp_feedback_type(GObject *session, guint session_id,
         case GST_RTCP_RTPFB_TYPE_NACK:
             GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Generic NACK\n",
                 session_id, is_received ? "Received" : "Sent", media_ssrc);
+#ifdef ENABLE_RTPRTXSEND_INFO_PRINT
+			{
+			static int cnt = 0;
+			GDateTime *date_time = g_date_time_new_now_local();
+			gchar * s_date_time = g_date_time_format(date_time, "%H:%M:%S,%F");
+			g_warning("(%u)Session %u, %s RTCP feedback for %u: Generic NACK @ %s\n",
+				cnt++, session_id, is_received ? "Received" : "Sent", media_ssrc, s_date_time);
+			g_free(s_date_time);
+			g_date_time_unref(date_time);
+			}
+#endif
             break;
         case GST_RTCP_RTPFB_TYPE_TMMBR:
             GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Request\n",
@@ -3186,6 +3265,11 @@ static void on_ssrc_active(GstElement *rtpbin, guint session_id, guint ssrc,
     g_object_unref(rtp_source);
     g_object_unref(rtp_session);
     g_object_unref(media_session);
+}
+
+static void on_new_sender_ssrc(GstElement *rtpbin, guint session_id, guint ssrc, OwrTransportAgent *transport_agent)
+{
+	g_message("session_id: %u, ssrc: %u\n", session_id, ssrc);
 }
 
 static void on_new_jitterbuffer(G_GNUC_UNUSED GstElement *rtpbin, GstElement *jitterbuffer, guint session_id, G_GNUC_UNUSED guint ssrc, OwrTransportAgent *transport_agent)
@@ -4250,7 +4334,9 @@ static void on_feedback_rtcp(GObject *session, guint type, guint fbtype, guint s
             /* TODO: Fix qbit */
 
             gst_buffer_unmap(fci, &info);
+			if(ENABLE_SCREAMQUEUE){
             g_signal_emit_by_name(scream_queue, "incoming-feedback", media_ssrc, timestamp, highest_seq, n_loss, n_ecn, qbit);
+			}
         }
         gst_object_unref(scream_queue);
     }
