@@ -837,7 +837,7 @@ static GstElement *owr_local_media_source_request_source(OwrMediaSource *media_s
 				gst_bin_add_many(GST_BIN(source), src, depay, parse, /*dec,*/ NULL);
 
 				g_signal_connect(src, "pad-added", (GCallback)on_rtspsrc_pad_added, depay);
-				g_object_set(G_OBJECT(src), "location", "rtsp://172.16.66.66/id=1"/*"rtsp://172.16.64.126/id=1"*/, NULL);
+				g_object_set(G_OBJECT(src), "location", "rtsp://172.16.66.67/id=1"/*"rtsp://172.16.64.126/id=1"*/, NULL);
 
 				g_warn_if_fail(gst_element_link(depay, parse));
 				//g_warn_if_fail(gst_element_link(parse, dec));
@@ -871,7 +871,11 @@ static GstElement *owr_local_media_source_request_source(OwrMediaSource *media_s
 					gst_element_add_pad(source, bin_pad);
 					bin_pad = NULL;
 					
-					sink_bin = gst_bin_new("source-sink-bin");
+					static int counter = 0;
+					gchar * s_counter = g_strdup_printf("source-sink-bin-%d", counter++);
+					sink_bin = gst_bin_new(s_counter);
+					g_free(s_counter);
+
 					sink_queue = gst_element_factory_make("queue", "sink-input-queue");
 					gst_bin_add_many(GST_BIN(sink_bin), sink_queue, inter_sink, NULL);
 					gst_element_sync_state_with_parent(sink_queue);
