@@ -764,6 +764,58 @@ static GstElement *owr_local_media_source_request_source(OwrMediaSource *media_s
                 CREATE_ELEMENT(source, "audiotestsrc", "audio-source");
                 g_object_set(source, "is-live", TRUE, NULL);
                 break;
+			case OWR_SOURCE_TYPE_NET:
+				if(!ENABLE_EMPTY_SOURCE_BIN)
+				{
+					CREATE_ELEMENT(source, "audiotestsrc", "audio-source");
+					g_object_set(source, "is-live", TRUE, NULL);
+				}
+				else
+				{
+					GstElement *inter_source, *source_queue;
+					GstPad *srcpad, *bin_pad, *sinkpad;
+					GstElement *inter_sink, *sink_queue, *sink_bin;
+
+					inter_source = g_object_new(OWR_TYPE_INTER_SRC, "name", "inter-source", NULL);
+					inter_sink = g_object_new(OWR_TYPE_INTER_SINK, "name", "inter-sink", NULL);
+
+					g_weak_ref_set(&OWR_INTER_SRC(inter_source)->sink_sinkpad, OWR_INTER_SINK(inter_sink)->sinkpad);
+					g_weak_ref_set(&OWR_INTER_SINK(inter_sink)->src_srcpad, OWR_INTER_SRC(inter_source)->internal_srcpad);
+
+					source = gst_bin_new("audio-source");
+
+					source_queue = gst_element_factory_make("queue", "source-output-queue");
+					gst_bin_add_many(GST_BIN(source), inter_source, source_queue, NULL);
+					LINK_ELEMENTS(inter_source, source_queue);
+
+					srcpad = gst_element_get_static_pad(source_queue, "src");
+					bin_pad = gst_ghost_pad_new("src", srcpad);
+					gst_object_unref(srcpad);
+					gst_pad_set_active(bin_pad, TRUE);
+					gst_element_add_pad(source, bin_pad);
+					bin_pad = NULL;
+
+					static int counter = 0;
+					gchar * s_counter = g_strdup_printf("audio-source-sink-bin-%d", counter++);
+					sink_bin = gst_bin_new(s_counter);
+					g_free(s_counter);
+
+					sink_queue = gst_element_factory_make("queue", "sink-input-queue");
+					gst_bin_add_many(GST_BIN(sink_bin), sink_queue, inter_sink, NULL);
+					gst_element_sync_state_with_parent(sink_queue);
+					gst_element_sync_state_with_parent(inter_sink);
+					LINK_ELEMENTS(sink_queue, inter_sink);
+
+					sinkpad = gst_element_get_static_pad(sink_queue, "sink");
+					bin_pad = gst_ghost_pad_new("sink", sinkpad);
+					gst_object_unref(sinkpad);
+					gst_pad_set_active(bin_pad, TRUE);
+					gst_element_add_pad(sink_bin, bin_pad);
+					bin_pad = NULL;
+					g_object_set_data(G_OBJECT(sink_bin), "media-type", "audio");
+					g_signal_emit_by_name(local_source, "on-source", sink_bin);
+				}
+				break;
             case OWR_SOURCE_TYPE_UNKNOWN:
             default:
                 g_assert_not_reached();
@@ -872,7 +924,7 @@ static GstElement *owr_local_media_source_request_source(OwrMediaSource *media_s
 					bin_pad = NULL;
 					
 					static int counter = 0;
-					gchar * s_counter = g_strdup_printf("source-sink-bin-%d", counter++);
+					gchar * s_counter = g_strdup_printf("video-source-sink-bin-%d", counter++);
 					sink_bin = gst_bin_new(s_counter);
 					g_free(s_counter);
 
@@ -888,7 +940,7 @@ static GstElement *owr_local_media_source_request_source(OwrMediaSource *media_s
 					gst_pad_set_active(bin_pad, TRUE);
 					gst_element_add_pad(sink_bin, bin_pad);
 					bin_pad = NULL;
-
+					g_object_set_data(G_OBJECT(sink_bin), "media-type", "video");
 					g_signal_emit_by_name(local_source, "on-source", sink_bin);
 				}
 				else if (ENABLE_DOUBLE_TESTSRC_TESTSRC)

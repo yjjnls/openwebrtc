@@ -284,8 +284,10 @@ static GstElement *owr_media_source_request_source_default(OwrMediaSource *media
     source_bin = gst_bin_new(bin_name);
     g_free(bin_name);
     g_object_get(media_source, "type", &source_type, NULL);
+	g_object_get(media_source, "media-type", &media_type, NULL);
     CREATE_ELEMENT_WITH_ID(queue_pre, "queue", "source-queue", source_id);
-    if (source_type != OWR_SOURCE_TYPE_NET)
+    if ( source_type != OWR_SOURCE_TYPE_NET || 
+		(source_type == OWR_SOURCE_TYPE_NET && media_type == OWR_MEDIA_TYPE_AUDIO) )
     {
     CREATE_ELEMENT_WITH_ID(capsfilter, "capsfilter", "source-output-capsfilter", source_id);
     }
@@ -293,7 +295,7 @@ static GstElement *owr_media_source_request_source_default(OwrMediaSource *media
 
     CREATE_ELEMENT_WITH_ID(sink_queue, "queue", "sink-queue", source_id);
 
-    g_object_get(media_source, "media-type", &media_type, NULL);
+    
     switch (media_type) {
     case OWR_MEDIA_TYPE_AUDIO:
         {

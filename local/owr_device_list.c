@@ -34,6 +34,8 @@
 #include "config.h"
 #endif
 
+#define ENABLE_AUDIO_NET_SOURCE
+
 #include "owr_device_list_private.h"
 #include "owr_local_media_source_private.h"
 #include "owr_media_source.h"
@@ -715,8 +717,13 @@ static gboolean enumerate_audio_source_devices(GClosure *callback)
 {
 	OwrLocalMediaSource *source;
 	GList *sources = NULL;
+#ifndef ENABLE_AUDIO_NET_SOURCE
 	source = _owr_local_media_source_new_cached(0, "audio0",
 		OWR_MEDIA_TYPE_AUDIO, OWR_SOURCE_TYPE_TEST);
+#else
+	source = _owr_local_media_source_new_cached(0, "audio0",
+		OWR_MEDIA_TYPE_AUDIO, OWR_SOURCE_TYPE_NET);
+#endif
 	sources = g_list_prepend(sources, source);
 	sources = g_list_reverse(sources);
 	_owr_utils_call_closure_with_list(callback, sources);

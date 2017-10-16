@@ -4539,7 +4539,7 @@ static gboolean on_payload_adaptation_request(GstElement *screamqueue, guint pt,
 
     OWR_UNUSED(screamqueue);
     payload = _owr_media_session_get_send_payload(media_session);
-    g_assert(pt);
+    //g_assert(pt);
     g_object_get(payload, "rtx-payload-type", &pt_rtx, "adaptation", &adapt_type, NULL);
     g_object_unref(payload);
     /* Use adaptation for this payload if not retransmission */
