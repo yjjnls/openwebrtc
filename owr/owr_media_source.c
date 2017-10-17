@@ -286,8 +286,7 @@ static GstElement *owr_media_source_request_source_default(OwrMediaSource *media
     g_object_get(media_source, "type", &source_type, NULL);
 	g_object_get(media_source, "media-type", &media_type, NULL);
     CREATE_ELEMENT_WITH_ID(queue_pre, "queue", "source-queue", source_id);
-    if ( source_type != OWR_SOURCE_TYPE_NET || 
-		(source_type == OWR_SOURCE_TYPE_NET && media_type == OWR_MEDIA_TYPE_AUDIO) )
+    if ( source_type != OWR_SOURCE_TYPE_NET )
     {
     CREATE_ELEMENT_WITH_ID(capsfilter, "capsfilter", "source-output-capsfilter", source_id);
     }
@@ -300,19 +299,28 @@ static GstElement *owr_media_source_request_source_default(OwrMediaSource *media
     case OWR_MEDIA_TYPE_AUDIO:
         {
         GstElement *audioresample, *audioconvert;
+		
+		
+		if (source_type == OWR_SOURCE_TYPE_NET)
+		{
+			gst_bin_add_many(GST_BIN(source_bin),
+				queue_pre, /*audioconvert, audioresample, capsfilter,*/ queue_post, NULL);
+			LINK_ELEMENTS(queue_pre, queue_post);
+		}
+		else
+		{
+			g_object_set(capsfilter, "caps", caps, NULL);
 
-        g_object_set(capsfilter, "caps", caps, NULL);
+			CREATE_ELEMENT_WITH_ID(audioresample, "audioresample", "source-audio-resample", source_id);
+			CREATE_ELEMENT_WITH_ID(audioconvert, "audioconvert", "source-audio-convert", source_id);
 
-        CREATE_ELEMENT_WITH_ID(audioresample, "audioresample", "source-audio-resample", source_id);
-        CREATE_ELEMENT_WITH_ID(audioconvert, "audioconvert", "source-audio-convert", source_id);
-
-        gst_bin_add_many(GST_BIN(source_bin),
-            queue_pre, audioconvert, audioresample, capsfilter, queue_post, NULL);
-        LINK_ELEMENTS(capsfilter, queue_post);
-        LINK_ELEMENTS(audioresample, capsfilter);
-        LINK_ELEMENTS(audioconvert, audioresample);
-        LINK_ELEMENTS(queue_pre, audioconvert);
-
+			gst_bin_add_many(GST_BIN(source_bin),
+				queue_pre, audioconvert, audioresample, capsfilter, queue_post, NULL);
+			LINK_ELEMENTS(capsfilter, queue_post);
+			LINK_ELEMENTS(audioresample, capsfilter);
+			LINK_ELEMENTS(audioconvert, audioresample);
+			LINK_ELEMENTS(queue_pre, audioconvert);
+		}
         break;
         }
     case OWR_MEDIA_TYPE_VIDEO:

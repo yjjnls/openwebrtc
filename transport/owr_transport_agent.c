@@ -2401,21 +2401,34 @@ static void handle_new_send_payload(OwrTransportAgent *transport_agent, OwrMedia
         gst_object_unref(sink_pad);
         g_free(name);
     } else { /* Audio */
-        encoder = _owr_payload_create_encoder(payload);
-        parser = _owr_payload_create_parser(payload);
-        payloader = _owr_payload_create_payload_packetizer(payload);
+		if (source_type != OWR_SOURCE_TYPE_NET)
+		{
+			encoder = _owr_payload_create_encoder(payload);
+		}
+		parser = _owr_payload_create_parser(payload);
+		payloader = _owr_payload_create_payload_packetizer(payload);
+		if (source_type != OWR_SOURCE_TYPE_NET)
+		{
+			encoder_sink_pad = gst_element_get_static_pad(encoder, "sink");
+			g_signal_connect(encoder_sink_pad, "notify::caps", G_CALLBACK(on_caps), OWR_SESSION(media_session));
+			gst_object_unref(encoder_sink_pad);
 
-        encoder_sink_pad = gst_element_get_static_pad(encoder, "sink");
-        g_signal_connect(encoder_sink_pad, "notify::caps", G_CALLBACK(on_caps), OWR_SESSION(media_session));
-        gst_object_unref(encoder_sink_pad);
-
-        gst_bin_add_many(GST_BIN(send_input_bin), encoder, payloader, NULL);
-        if (parser) {
-            gst_bin_add(GST_BIN(send_input_bin), parser);
-            link_ok &= gst_element_link_many(encoder, parser, payloader, NULL);
-        } else
-            link_ok &= gst_element_link_many(encoder, payloader, NULL);
-
+			gst_bin_add_many(GST_BIN(send_input_bin), encoder, payloader, NULL);
+			if (parser) {
+				gst_bin_add(GST_BIN(send_input_bin), parser);
+				link_ok &= gst_element_link_many(encoder, parser, payloader, NULL);
+			}
+			else
+				link_ok &= gst_element_link_many(encoder, payloader, NULL);
+		}
+		else
+		{
+			gst_bin_add_many(GST_BIN(send_input_bin),/*encoder,*/ payloader, NULL);
+			if (parser) {
+				gst_bin_add(GST_BIN(send_input_bin), parser);
+				link_ok &= gst_element_link_many(/*encoder,*/parser, payloader, NULL);
+			}
+		}
         link_ok &= gst_element_link_many(payloader, rtp_capsfilter, NULL);
         g_warn_if_fail(link_ok);
 
@@ -2423,11 +2436,21 @@ static void handle_new_send_payload(OwrTransportAgent *transport_agent, OwrMedia
         sync_ok &= gst_element_sync_state_with_parent(payloader);
         if (parser)
             sync_ok &= gst_element_sync_state_with_parent(parser);
-        sync_ok &= gst_element_sync_state_with_parent(encoder);
+		if (source_type != OWR_SOURCE_TYPE_NET)
+		{
+			sync_ok &= gst_element_sync_state_with_parent(encoder);
+		}
         g_warn_if_fail(sync_ok);
 
         name = g_strdup_printf("audio_raw_sink_%u", stream_id);
-        sink_pad = gst_element_get_static_pad(encoder, "sink");
+		if (source_type != OWR_SOURCE_TYPE_NET)
+		{
+			sink_pad = gst_element_get_static_pad(encoder, "sink");
+		}
+		else
+		{
+			sink_pad = gst_element_get_static_pad(payloader, "sink");
+		}
         add_pads_to_bin_and_transport_bin(sink_pad, send_input_bin,
             transport_agent->priv->transport_bin, name);
         gst_object_unref(sink_pad);

@@ -822,7 +822,7 @@ static GstElement *owr_local_media_source_request_source(OwrMediaSource *media_s
                 goto done;
             }
 
-            if (!GST_IS_STREAM_VOLUME(source)) {
+            if (!GST_IS_STREAM_VOLUME(source) && media_type==OWR_MEDIA_TYPE_AUDIO && source_type != OWR_SOURCE_TYPE_NET) {
                 CREATE_ELEMENT(priv->source_volume, "volume", "audio-source-volume");
                 g_object_set(priv->source_volume, "volume", priv->volume, "mute", priv->mute, NULL);
                 source_process = gst_object_ref(priv->source_volume);
