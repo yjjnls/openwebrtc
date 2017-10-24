@@ -108,6 +108,7 @@ OwrMediaSource *_owr_remote_media_source_new(OwrMediaType media_type,
     source = g_object_new(OWR_TYPE_REMOTE_MEDIA_SOURCE,
         "name", name,
         "media-type", media_type,
+		"type", OWR_SOURCE_TYPE_NET,
         NULL);
 
     priv = source->priv;

@@ -479,15 +479,21 @@ static GstCaps *owr_video_renderer_get_caps(OwrMediaRenderer *renderer)
     GstCaps *caps;
     guint width = 0, height = 0;
     gdouble max_framerate = 0.0;
+	OwrSourceType source_type = OWR_SOURCE_TYPE_UNKNOWN;
 
+	g_object_get(renderer, "source-type", &source_type, NULL);
+	
     g_object_get(OWR_VIDEO_RENDERER(renderer),
         "width", &width,
         "height", &height,
         "max-framerate", &max_framerate,
         NULL);
-
+	
     caps = gst_caps_new_empty_simple("video/x-raw");
-    gst_caps_set_features(caps, 0, gst_caps_features_new_any());
+	if (source_type != OWR_SOURCE_TYPE_NET)
+	{
+		gst_caps_set_features(caps, 0, gst_caps_features_new_any());
+	}
     if (width > 0)
         gst_caps_set_simple(caps, "width", G_TYPE_INT, width, NULL);
     if (height > 0)

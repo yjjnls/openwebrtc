@@ -84,7 +84,8 @@ GST_DEBUG_CATEGORY_EXTERN(_owrsession_debug);
 #define GST_RTCP_RTPFB_TYPE_SCREAM 18
 #define TEST_RTX_SEND
 //#define ENABLE_DROP_PACKET
-#define ENABLE_RTPRTXSEND_INFO_PRINT
+//#define ENABLE_RTPRTXSEND_INFO_PRINT
+//#define ENABLE_RECEIVE_OUTPUT_BIN_DECODER
 enum {
     PROP_0,
     PROP_ICE_CONTROLLING_MODE,
@@ -2671,6 +2672,12 @@ static GstPadProbeReturn check_for_keyframe(GstPad *pad, GstPadProbeInfo *info,
         GST_CAT_INFO_OBJECT(_owrsession_debug, session_data->session,
             "Session %u, Received keyframe for %u\n", session_data->session_id,
             GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(session_data->session), "ssrc")));
+		static int cnt = 0;
+		GDateTime *date_time = g_date_time_new_now_local();
+		gchar * s_date_time = g_date_time_format(date_time, "%H:%M:%S,%F");
+		g_warning("Received keyframe(%u) @ (%s)", cnt++, s_date_time);
+		g_free(s_date_time);
+		g_date_time_unref(date_time);
     }
 
     return GST_PAD_PROBE_OK;
@@ -2700,9 +2707,17 @@ static void setup_video_receive_elements(GstPad *new_pad, guint32 session_id, Ow
 
     rtpdepay = _owr_payload_create_payload_depacketizer(payload);
     g_snprintf(name, OWR_OBJECT_NAME_LENGTH_MAX, "videorepair1_%u", session_id);
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
     videorepair1 = gst_element_factory_make("videorepair", name);
+#endif
+	g_object_get(payload, "codec-type", &codec_type, NULL);
+	parser = _owr_payload_create_parser(payload);
 
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
     pad = gst_element_get_static_pad(videorepair1, "src");
+#else
+	pad = gst_element_get_static_pad(parser, "src");
+#endif
     session_data = g_slice_new(SessionData);
     session_data->session = get_session(transport_agent, session_id);
     session_data->session_id = session_id;
@@ -2711,33 +2726,56 @@ static void setup_video_receive_elements(GstPad *new_pad, guint32 session_id, Ow
     gst_object_unref(pad);
     pad = NULL;
 
-    g_object_get(payload, "codec-type", &codec_type, NULL);
-    parser = _owr_payload_create_parser(payload);
-    decoder = _owr_payload_create_decoder(payload);
 
+   
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
+    decoder = _owr_payload_create_decoder(payload);
+#endif
+
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
     gst_bin_add_many(GST_BIN(receive_output_bin), rtpdepay,
         videorepair1, decoder, /*decoded_tee,*/ NULL);
+#else
+	gst_bin_add_many(GST_BIN(receive_output_bin), rtpdepay,
+		/*videorepair1,*/ /*decoded_tee,*/ NULL);
+#endif
     depay_sink_pad = gst_element_get_static_pad(rtpdepay, "sink");
     if (parser) {
         gst_bin_add(GST_BIN(receive_output_bin), parser);
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
         link_ok &= gst_element_link_many(rtpdepay, parser, videorepair1, decoder, NULL);
+#else
+		link_ok &= gst_element_link_many(rtpdepay, parser, NULL);
+#endif
     } else
+	{
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
         link_ok &= gst_element_link_many(rtpdepay, videorepair1, decoder, NULL);
-
+#endif
+	}
     ghost_pad = ghost_pad_and_add_to_bin(depay_sink_pad, receive_output_bin, "sink");
     link_res = gst_pad_link(new_pad, ghost_pad);
     gst_object_unref(depay_sink_pad);
     ghost_pad = NULL;
     g_warn_if_fail(link_ok && (link_res == GST_PAD_LINK_OK));
-
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
     sync_ok &= gst_element_sync_state_with_parent(decoder);
+#endif
     if (parser)
         sync_ok &= gst_element_sync_state_with_parent(parser);
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
     sync_ok &= gst_element_sync_state_with_parent(videorepair1);
+#endif
     sync_ok &= gst_element_sync_state_with_parent(rtpdepay);
     g_warn_if_fail(sync_ok);
-
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
     pad = gst_element_get_static_pad(decoder, "src");
+#else
+	if (parser)
+		pad = gst_element_get_static_pad(parser, "src");
+	else
+		pad = gst_element_get_static_pad(rtpdepay, "src");
+#endif
     g_snprintf(name, OWR_OBJECT_NAME_LENGTH_MAX, "video_src_%u_%u", OWR_CODEC_TYPE_NONE,
         session_id);
     add_pads_to_bin_and_transport_bin(pad, receive_output_bin, transport_agent->priv->transport_bin, name);
@@ -3036,8 +3074,21 @@ static void print_rtcp_feedback_type(GObject *session, guint session_id,
             break;
         }
     } else if (packet_type == GST_RTCP_TYPE_PSFB) {
+		g_print("Session %u, %s RTCP feedback for %u: %s\n", 
+			session_id, is_received ? "Received" : "Sent", media_ssrc,
+			fbtype == GST_RTCP_PSFB_TYPE_PLI ? "GST_RTCP_PSFB_TYPE_PLI" :
+			fbtype == GST_RTCP_PSFB_TYPE_SLI ? "GST_RTCP_PSFB_TYPE_SLI" :
+			fbtype == GST_RTCP_PSFB_TYPE_RPSI ? "GST_RTCP_PSFB_TYPE_RPSI" :
+			fbtype == GST_RTCP_PSFB_TYPE_AFB ? "GST_RTCP_PSFB_TYPE_AFB" :
+			fbtype == GST_RTCP_PSFB_TYPE_FIR ? "GST_RTCP_PSFB_TYPE_FIR" :
+			fbtype == GST_RTCP_PSFB_TYPE_TSTR ? "GST_RTCP_PSFB_TYPE_TSTR" :
+			fbtype == GST_RTCP_PSFB_TYPE_TSTN ? "GST_RTCP_PSFB_TYPE_TSTN" :
+			fbtype == GST_RTCP_PSFB_TYPE_VBCN ? "GST_RTCP_PSFB_TYPE_VBCN" :
+			"unknown"
+			);
         switch (fbtype) {
         case GST_RTCP_PSFB_TYPE_PLI:
+
             GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Picture Loss Indication\n",
                 session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;

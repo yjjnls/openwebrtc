@@ -114,6 +114,7 @@ struct _OwrLocalMediaSourcePrivate {
     /* Volume and mute are for before source_volume gets created */
     double volume;
     gboolean mute;
+	gchar *source_id;
 };
 
 static GstElement *owr_local_media_source_request_source(OwrMediaSource *media_source, GstCaps *caps);
@@ -128,6 +129,7 @@ enum {
     PROP_DEVICE_INDEX,
     PROP_VOLUME,
     PROP_MUTE,
+	PROP_SOURCE_ID,
     N_PROPERTIES
 };
 
@@ -143,6 +145,7 @@ static void owr_local_media_source_finalize(GObject *object)
 
     owr_message_origin_bus_set_free(source->priv->message_origin_bus_set);
     source->priv->message_origin_bus_set = NULL;
+	g_free(source->priv->source_id);
 
     g_clear_object(&source->priv->source_volume);
 }
@@ -178,6 +181,11 @@ static void owr_local_media_source_class_init(OwrLocalMediaSourceClass *klass)
             "Mute state (only applicable to audio sources)",
             FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+	g_object_class_install_property(gobject_class, PROP_SOURCE_ID,
+		g_param_spec_string("source-id", "SourceID",
+			"Source id designated by outside application",
+			"", G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
 	owr_local_media_source_signals[SIGNAL_ON_SOURCE] = g_signal_new("on-source",
 		G_OBJECT_CLASS_TYPE(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
 		NULL, G_TYPE_NONE, 1, GST_TYPE_BIN);
@@ -203,6 +211,7 @@ static void owr_local_media_source_init(OwrLocalMediaSource *source)
     priv->source_volume = NULL;
     priv->volume = 0.8;
     priv->mute = FALSE;
+	priv->source_id = NULL;
 }
 
 static void owr_local_media_source_set_property(GObject *object, guint property_id,
@@ -276,6 +285,12 @@ static void owr_local_media_source_set_property(GObject *object, guint property_
             GST_WARNING_OBJECT(source, "Tried to set mute on non-audio source");
         break;
     }
+	case PROP_SOURCE_ID:
+		if (source->priv->source_id)
+			g_free(source->priv->source_id);
+		source->priv->source_id = (gchar*)g_value_dup_string(value);
+		break;
+
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -352,6 +367,9 @@ static void owr_local_media_source_get_property(GObject *object, guint property_
         } else
             GST_WARNING_OBJECT(source, "Tried to get volume on non-audio source");
         break;
+	case PROP_SOURCE_ID:
+		g_value_set_string(value, source->priv->source_id);
+		break;
 
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
@@ -795,8 +813,9 @@ static GstElement *owr_local_media_source_request_source(OwrMediaSource *media_s
 					gst_element_add_pad(source, bin_pad);
 					bin_pad = NULL;
 
-					static int counter = 0;
-					gchar * s_counter = g_strdup_printf("audio-source-sink-bin-%d", counter++);
+					gchar *source_id;
+					g_object_get(local_source, "source-id", &source_id, NULL);
+					gchar * s_counter = g_strdup_printf("audio-output-source-sink-bin-%s", source_id);
 					sink_bin = gst_bin_new(s_counter);
 					g_free(s_counter);
 
@@ -922,9 +941,10 @@ static GstElement *owr_local_media_source_request_source(OwrMediaSource *media_s
 					gst_pad_set_active(bin_pad, TRUE);
 					gst_element_add_pad(source, bin_pad);
 					bin_pad = NULL;
-					
-					static int counter = 0;
-					gchar * s_counter = g_strdup_printf("video-source-sink-bin-%d", counter++);
+
+					gchar *source_id;
+					g_object_get(local_source, "source-id", &source_id, NULL);
+					gchar * s_counter = g_strdup_printf("video-output-source-sink-bin-%s", source_id);
 					sink_bin = gst_bin_new(s_counter);
 					g_free(s_counter);
 

@@ -43,6 +43,9 @@
 #include "owr_types.h"
 #include "owr_utils.h"
 
+#include "owr_inter_src.h"
+#include "owr_inter_sink.h"
+
 #include <gst/gst.h>
 
 #include <stdio.h>
@@ -53,16 +56,30 @@ GST_DEBUG_CATEGORY_EXTERN(_owrmediarenderer_debug);
 #define DEFAULT_MEDIA_TYPE OWR_MEDIA_TYPE_UNKNOWN
 #define DEFAULT_SOURCE NULL
 #define DEFAULT_DISABLED FALSE
+#define DEFAULT_TYPE OWR_SOURCE_TYPE_UNKNOWN
+
+#define LINK_ELEMENTS(a, b) do { \
+    if (!gst_element_link(a, b)) \
+        GST_ERROR("Failed to link " #a " -> " #b); \
+} while (0)
 
 enum {
     PROP_0,
     PROP_MEDIA_TYPE,
     PROP_DISABLED,
+	PROP_SOURCE_ID,
+	PROP_SOURCE_TYPE,
     N_PROPERTIES
 };
 
 static guint unique_bin_id = 0;
 static GParamSpec *obj_properties[N_PROPERTIES] = {NULL, };
+
+enum {
+	SIGNAL_ON_SINK,
+	N_SIGNALS
+};
+static guint owr_media_renderer_signals[N_SIGNALS] = { 0 };
 
 #define OWR_MEDIA_RENDERER_GET_PRIVATE(obj)    (G_TYPE_INSTANCE_GET_PRIVATE((obj), OWR_TYPE_MEDIA_RENDERER, OwrMediaRendererPrivate))
 
@@ -75,7 +92,10 @@ struct _OwrMediaRendererPrivate {
     GMutex media_renderer_lock;
     OwrMediaType media_type;
     OwrMediaSource *source;
+	OwrSourceType source_type;
+
     gboolean disabled;
+	gchar *source_id;
 
     GstElement *pipeline;
     GstElement *src, *sink;
@@ -109,7 +129,7 @@ static void owr_media_renderer_finalize(GObject *object)
         priv->source = NULL;
         priv->src = NULL;
     }
-
+	g_free(priv->source_id);
     g_mutex_clear(&priv->media_renderer_lock);
 
     G_OBJECT_CLASS(owr_media_renderer_parent_class)->finalize(object);
@@ -130,11 +150,24 @@ static void owr_media_renderer_class_init(OwrMediaRendererClass *klass)
         "Whether this renderer is disabled or not", DEFAULT_DISABLED,
         G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+	obj_properties[PROP_SOURCE_ID] = g_param_spec_string("source-id", "SourceID",
+		"Source id designated by outside application",
+		"", G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+	obj_properties[PROP_SOURCE_TYPE] = g_param_spec_enum("source-type", "SourceType",
+		"The type of source in terms of how it generates media",
+		OWR_TYPE_SOURCE_TYPE, DEFAULT_TYPE,
+		G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
     gobject_class->set_property = owr_media_renderer_set_property;
     gobject_class->get_property = owr_media_renderer_get_property;
 
     gobject_class->finalize = owr_media_renderer_finalize;
     g_object_class_install_properties(gobject_class, N_PROPERTIES, obj_properties);
+
+	owr_media_renderer_signals[SIGNAL_ON_SINK] = g_signal_new("on-sink",
+		G_OBJECT_CLASS_TYPE(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
+		NULL, G_TYPE_NONE, 1, GST_TYPE_BIN);
 }
 
 static gpointer owr_media_renderer_get_bus_set(OwrMessageOrigin *origin)
@@ -220,7 +253,7 @@ static void owr_media_renderer_init(OwrMediaRenderer *renderer)
     priv->media_type = DEFAULT_MEDIA_TYPE;
     priv->source = DEFAULT_SOURCE;
     priv->disabled = DEFAULT_DISABLED;
-
+	priv->source_id = NULL;
     priv->message_origin_bus_set = owr_message_origin_bus_set_new();
 
     bin_name = g_strdup_printf("media-renderer-%u", g_atomic_int_add(&unique_bin_id, 1));
@@ -262,6 +295,16 @@ static void owr_media_renderer_set_property(GObject *object, guint property_id,
     case PROP_DISABLED:
         priv->disabled = g_value_get_boolean(value);
         break;
+	
+	case PROP_SOURCE_ID:
+		if (priv->source_id)
+			g_free(priv->source_id);
+		priv->source_id = (gchar*)g_value_dup_string(value);
+		break;
+
+	case PROP_SOURCE_TYPE:
+		priv->source_type = g_value_get_enum(value);
+		break;
 
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
@@ -285,6 +328,14 @@ static void owr_media_renderer_get_property(GObject *object, guint property_id,
     case PROP_DISABLED:
         g_value_set_boolean(value, priv->disabled);
         break;
+
+	case PROP_SOURCE_ID:
+		g_value_set_string(value, priv->source_id);
+		break;
+
+	case PROP_SOURCE_TYPE:
+		g_value_set_enum(value, priv->source_type);
+		break;
 
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
@@ -315,16 +366,24 @@ static void maybe_start_renderer(OwrMediaRenderer *renderer)
     GstElement *src;
     GstCaps *caps;
     GstPadLinkReturn pad_link_return;
+	OwrMediaType media_type = OWR_MEDIA_TYPE_UNKNOWN;
+	OwrSourceType source_type = OWR_SOURCE_TYPE_UNKNOWN;
 
     priv = renderer->priv;
 
     if (!priv->sink || !priv->source)
         return;
+	
+	g_object_get(priv->source, "media-type", &media_type, "type", &source_type, NULL);
+	if (source_type != OWR_SOURCE_TYPE_NET)
+	{
+		sinkpad = gst_element_get_static_pad(priv->sink, "sink");
+		g_assert(sinkpad);
 
-    sinkpad = gst_element_get_static_pad(priv->sink, "sink");
-    g_assert(sinkpad);
+		g_signal_connect(sinkpad, "notify::caps", G_CALLBACK(on_caps), renderer);
+	}
 
-    g_signal_connect(sinkpad, "notify::caps", G_CALLBACK(on_caps), renderer);
+	g_object_set(renderer, "source-type", source_type, NULL);
 
     caps = OWR_MEDIA_RENDERER_GET_CLASS(renderer)->get_caps(renderer);
     src = _owr_media_source_request_source(priv->source, caps);
@@ -336,8 +395,77 @@ static void maybe_start_renderer(OwrMediaRenderer *renderer)
 
     /* The sink is always inside the bin already */
     gst_bin_add_many(GST_BIN(priv->pipeline), priv->src, NULL);
-    pad_link_return = gst_pad_link(srcpad, sinkpad);
-    gst_object_unref(sinkpad);
+	if (source_type != OWR_SOURCE_TYPE_NET)
+	{
+		pad_link_return = gst_pad_link(srcpad, sinkpad);
+		gst_object_unref(sinkpad);
+	}
+	else
+	{
+		GstElement *inter_source, *source_queue;
+		GstPad *src_pad, *bin_pad, *sinkpad;
+		GstElement *inter_sink, *sink_queue, *sink_bin;
+		GstElement *source_bin;
+
+		inter_source = g_object_new(OWR_TYPE_INTER_SRC, "name", "inter-source", NULL);
+		inter_sink = g_object_new(OWR_TYPE_INTER_SINK, "name", "inter-sink", NULL);
+
+		g_weak_ref_set(&OWR_INTER_SRC(inter_source)->sink_sinkpad, OWR_INTER_SINK(inter_sink)->sinkpad);
+		g_weak_ref_set(&OWR_INTER_SINK(inter_sink)->src_srcpad, OWR_INTER_SRC(inter_source)->internal_srcpad);
+		
+		gchar *source_id;
+		g_object_get(renderer, "source-id", &source_id, NULL);
+
+		if(media_type == OWR_MEDIA_TYPE_AUDIO)
+		{
+			gchar *bin_name = g_strdup_printf("audio-input-source-sink-bin-%s", source_id);
+			source_bin = gst_bin_new(bin_name);
+			g_object_set_data(G_OBJECT(source_bin), "media-type", "audio");
+			g_free(bin_name);
+		}
+		else if (media_type == OWR_MEDIA_TYPE_VIDEO)
+		{
+			gchar *bin_name = g_strdup_printf("video-input-source-sink-bin-%s", source_id);
+			source_bin = gst_bin_new(bin_name);
+			g_object_set_data(G_OBJECT(source_bin), "media-type", "video");
+			g_free(bin_name);
+		}
+		else
+		{
+			g_warn_if_reached();
+		}
+
+		source_queue = gst_element_factory_make("queue", "source-output-queue");
+		gst_bin_add_many(GST_BIN(source_bin), inter_source, source_queue, NULL);
+		LINK_ELEMENTS(inter_source, source_queue);
+
+		src_pad = gst_element_get_static_pad(source_queue, "src");
+		bin_pad = gst_ghost_pad_new("src", src_pad);
+		gst_object_unref(src_pad);
+		gst_pad_set_active(bin_pad, TRUE);
+		gst_element_add_pad(source_bin, bin_pad);
+		bin_pad = NULL;
+
+		sink_bin = gst_bin_new("sink-bin");
+		
+		sink_queue = gst_element_factory_make("queue", "sink-input-queue");
+		gst_bin_add_many(GST_BIN(sink_bin), sink_queue, inter_sink, NULL);
+		gst_element_sync_state_with_parent(sink_queue);
+		gst_element_sync_state_with_parent(inter_sink);
+		LINK_ELEMENTS(sink_queue, inter_sink);
+		
+		sinkpad = gst_element_get_static_pad(sink_queue, "sink");
+		bin_pad = gst_ghost_pad_new("sink", sinkpad);
+		gst_object_unref(sinkpad);
+		gst_pad_set_active(bin_pad, TRUE);
+		gst_element_add_pad(sink_bin, bin_pad);
+
+		gst_bin_add_many(GST_BIN(priv->pipeline), sink_bin, NULL);
+		//pad_link_return = gst_element_link(src,sink_bin);
+		pad_link_return = gst_pad_link(srcpad, bin_pad);
+		g_signal_emit_by_name(renderer, "on-sink", source_bin);
+		bin_pad = NULL;
+	}
     gst_object_unref(srcpad);
     if (pad_link_return != GST_PAD_LINK_OK) {
         GST_ERROR("Failed to link source with renderer (%d)", pad_link_return);
