@@ -95,6 +95,13 @@ enum {
 static GParamSpec *obj_properties[N_PROPERTIES] = {NULL, };
 static guint next_transport_agent_id = 1;
 
+enum {
+	SIGNAL_ON_RECV_PSFB_PLI,
+	SIGNAL_ON_SEND_PSFB_PLI,
+	N_SIGNALS
+};
+static guint owr_transport_agent_signals[N_SIGNALS] = { 0 };
+
 #define OWR_TRANSPORT_AGENT_GET_PRIVATE(obj)    (G_TYPE_INSTANCE_GET_PRIVATE((obj), OWR_TYPE_TRANSPORT_AGENT, OwrTransportAgentPrivate))
 
 static void owr_message_origin_interface_init(OwrMessageOriginInterface *iface);
@@ -283,6 +290,8 @@ static void maybe_close_data_channel(OwrTransportAgent *transport_agent, DataCha
 static gboolean on_payload_adaptation_request(GstElement *screamqueue, guint pt,
     OwrMediaSession *media_session);
 
+static void on_send_psfb_pli(GObject *agent, gulong sender_ssrc, gulong media_ssrc, OwrSession *session);
+
 static void owr_transport_agent_finalize(GObject *object)
 {
     OwrTransportAgent *transport_agent = NULL;
@@ -354,6 +363,13 @@ static void owr_transport_agent_class_init(OwrTransportAgentClass *klass)
 
     g_object_class_install_properties(gobject_class, N_PROPERTIES, obj_properties);
 
+	owr_transport_agent_signals[SIGNAL_ON_RECV_PSFB_PLI] = g_signal_new("on-recv-psfb-pli",
+		G_OBJECT_CLASS_TYPE(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
+		NULL, G_TYPE_NONE, 2, G_TYPE_ULONG, G_TYPE_ULONG);
+
+	owr_transport_agent_signals[SIGNAL_ON_SEND_PSFB_PLI] = g_signal_new("on-send-psfb-pli",
+		G_OBJECT_CLASS_TYPE(klass), G_SIGNAL_RUN_LAST, 0, NULL, NULL,
+		NULL, G_TYPE_NONE, 2, G_TYPE_ULONG, G_TYPE_ULONG);
 }
 
 static gpointer owr_transport_agent_get_bus_set(OwrMessageOrigin *origin)
@@ -650,6 +666,8 @@ void owr_transport_agent_add_session(OwrTransportAgent *agent, OwrSession *sessi
     g_hash_table_insert(args, "session", session);
 
     g_object_ref(agent);
+
+	g_signal_connect_after(agent, "on-send-psfb-pli", G_CALLBACK(on_send_psfb_pli), session);
 
     _owr_schedule_with_hash_table((GSourceFunc)add_session, args);
 
@@ -1040,6 +1058,7 @@ static gboolean add_session(GHashTable *args)
     g_mutex_lock(&priv->sessions_lock);
     g_hash_table_insert(priv->sessions, GUINT_TO_POINTER(stream_id), session);
     g_object_ref(session);
+	g_object_set(session, "stream-id", stream_id, NULL);
     g_mutex_unlock(&priv->sessions_lock);
 
     update_helper_servers(transport_agent, stream_id);
@@ -1126,7 +1145,7 @@ static gboolean add_session(GHashTable *args)
         g_object_set_data(rtp_session, "session_id", GUINT_TO_POINTER(stream_id));
         g_signal_connect_after(rtp_session, "on-sending-rtcp", G_CALLBACK(on_sending_rtcp), transport_agent);
         g_signal_connect(rtp_session, "on-feedback-rtcp", G_CALLBACK(on_feedback_rtcp), transport_agent);
-        g_signal_connect_after(rtp_session, "on-receiving-rtcp", G_CALLBACK(on_receiving_rtcp), NULL);
+        g_signal_connect_after(rtp_session, "on-receiving-rtcp", G_CALLBACK(on_receiving_rtcp), transport_agent);
         g_object_unref(rtp_session);
 
         maybe_handle_new_send_source_with_payload(transport_agent, OWR_MEDIA_SESSION(session));
@@ -2716,7 +2735,10 @@ static void setup_video_receive_elements(GstPad *new_pad, guint32 session_id, Ow
 #ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
     pad = gst_element_get_static_pad(videorepair1, "src");
 #else
-	pad = gst_element_get_static_pad(parser, "src");
+	if(parser)
+		pad = gst_element_get_static_pad(parser, "src");
+	else
+		pad = gst_element_get_static_pad(rtpdepay, "src");
 #endif
     session_data = g_slice_new(SessionData);
     session_data->session = get_session(transport_agent, session_id);
@@ -3033,13 +3055,18 @@ static void print_rtcp_feedback_type(GObject *session, guint session_id,
     gboolean is_received)
 {
     if (fbtype == GST_RTCP_FB_TYPE_INVALID) {
-        GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Invalid type\n",
-            session_id, is_received ? "Received" : "Sent", media_ssrc);
+        //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Invalid type\n",
+        //    session_id, is_received ? "Received" : "Sent", media_ssrc);
+		g_print("(INVALID)Session %u, %s RTCP feedback for %u: Invalid type\n",
+			    session_id, is_received ? "Received" : "Sent", media_ssrc);
     } else if (packet_type == GST_RTCP_TYPE_RTPFB) {
         switch (fbtype) {
         case GST_RTCP_RTPFB_TYPE_NACK:
-            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Generic NACK\n",
-                session_id, is_received ? "Received" : "Sent", media_ssrc);
+            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Generic NACK\n",
+            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
+			g_print("(NACK %u )Session %u, %s RTCP feedback for %u : Generic NACK\n",
+				fci ? GST_READ_UINT32_BE(fci) : 0,
+				session_id, is_received ? "Received" : "Sent", media_ssrc);
 #ifdef ENABLE_RTPRTXSEND_INFO_PRINT
 			{
 			static int cnt = 0;
@@ -3053,76 +3080,90 @@ static void print_rtcp_feedback_type(GObject *session, guint session_id,
 #endif
             break;
         case GST_RTCP_RTPFB_TYPE_TMMBR:
-            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Request\n",
-                session_id, is_received ? "Received" : "Sent", media_ssrc);
+            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Request\n",
+            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
+			g_print("(TMMBR)Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Request\n",
+				session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         case GST_RTCP_RTPFB_TYPE_TMMBN:
-            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Notification\n",
-                session_id, is_received ? "Received" : "Sent", media_ssrc);
+            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Notification\n",
+            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
+			g_print("(TMMBN)Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Notification\n",
+				session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         case GST_RTCP_RTPFB_TYPE_RTCP_SR_REQ:
-            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Request an SR packet for early synchronization\n",
-                session_id, is_received ? "Received" : "Sent", media_ssrc);
+            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Request an SR packet for early synchronization\n",
+            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
+			g_print("(SR_REQ)Session %u, %s RTCP feedback for %u: Request an SR packet for early synchronization\n",
+				session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         case GST_RTCP_RTPFB_TYPE_SCREAM:
-            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: SCReAM\n",
-                session_id, is_received ? "Received" : "Sent", media_ssrc);
+            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: SCReAM\n",
+            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
+			g_print("(SCREAM)Session %u, %s RTCP feedback for %u: SCReAM\n",
+				session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         default:
-            GST_CAT_WARNING_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Unknown feedback type %u\n",
-                session_id, is_received ? "Received" : "Sent", media_ssrc, fbtype);
+            //GST_CAT_WARNING_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Unknown feedback type %u\n",
+            //    session_id, is_received ? "Received" : "Sent", media_ssrc, fbtype);
+			g_print("(Unknown)Session %u, %s RTCP feedback for %u: Unknown feedback type %u\n",
+				session_id, is_received ? "Received" : "Sent", media_ssrc, fbtype);
             break;
         }
     } else if (packet_type == GST_RTCP_TYPE_PSFB) {
-		g_print("Session %u, %s RTCP feedback for %u: %s\n", 
-			session_id, is_received ? "Received" : "Sent", media_ssrc,
-			fbtype == GST_RTCP_PSFB_TYPE_PLI ? "GST_RTCP_PSFB_TYPE_PLI" :
-			fbtype == GST_RTCP_PSFB_TYPE_SLI ? "GST_RTCP_PSFB_TYPE_SLI" :
-			fbtype == GST_RTCP_PSFB_TYPE_RPSI ? "GST_RTCP_PSFB_TYPE_RPSI" :
-			fbtype == GST_RTCP_PSFB_TYPE_AFB ? "GST_RTCP_PSFB_TYPE_AFB" :
-			fbtype == GST_RTCP_PSFB_TYPE_FIR ? "GST_RTCP_PSFB_TYPE_FIR" :
-			fbtype == GST_RTCP_PSFB_TYPE_TSTR ? "GST_RTCP_PSFB_TYPE_TSTR" :
-			fbtype == GST_RTCP_PSFB_TYPE_TSTN ? "GST_RTCP_PSFB_TYPE_TSTN" :
-			fbtype == GST_RTCP_PSFB_TYPE_VBCN ? "GST_RTCP_PSFB_TYPE_VBCN" :
-			"unknown"
-			);
         switch (fbtype) {
         case GST_RTCP_PSFB_TYPE_PLI:
 
-            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Picture Loss Indication\n",
-                session_id, is_received ? "Received" : "Sent", media_ssrc);
+            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Picture Loss Indication\n",
+            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
+			g_print("(PLI)Session %u, %s RTCP feedback for %u: Picture Loss Indication\n",
+				session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         case GST_RTCP_PSFB_TYPE_SLI:
-            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Slice Loss Indication\n",
-                session_id, is_received ? "Received" : "Sent", media_ssrc);
+            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Slice Loss Indication\n",
+            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
+			g_print("(SLI)Session %u, %s RTCP feedback for %u: Slice Loss Indication\n",
+				session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         case GST_RTCP_PSFB_TYPE_RPSI:
-            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Reference Picture Selection Indication\n",
-                session_id, is_received ? "Received" : "Sent", media_ssrc);
+            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Reference Picture Selection Indication\n",
+            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
+			g_print("(RPSI)Session %u, %s RTCP feedback for %u: Reference Picture Selection Indication\n",
+				session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         case GST_RTCP_PSFB_TYPE_AFB:
             GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Application layer Feedback\n",
                 session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         case GST_RTCP_PSFB_TYPE_FIR:
-            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Full Intra Request Command\n",
-                session_id, is_received ? "Received" : "Sent", fci ? GST_READ_UINT32_BE(fci) : 0);
+            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Full Intra Request Command\n",
+            //    session_id, is_received ? "Received" : "Sent", fci ? GST_READ_UINT32_BE(fci) : 0);
+			g_print("(FIR)Session %u, %s RTCP feedback for %u: Full Intra Request Command\n",
+				session_id, is_received ? "Received" : "Sent", fci ? GST_READ_UINT32_BE(fci) : 0);
             break;
         case GST_RTCP_PSFB_TYPE_TSTR:
-            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Temporal-Spatial Trade-off Request\n",
-                session_id, is_received ? "Received" : "Sent", media_ssrc);
+            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Temporal-Spatial Trade-off Request\n",
+            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
+			g_print("(TSTR)Session %u, %s RTCP feedback for %u: Temporal-Spatial Trade-off Request\n",
+				session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         case GST_RTCP_PSFB_TYPE_TSTN:
-            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Temporal-Spatial Trade-off Notification\n",
-                session_id, is_received ? "Received" : "Sent", media_ssrc);
+            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Temporal-Spatial Trade-off Notification\n",
+            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
+			g_print("(TSTN)Session %u, %s RTCP feedback for %u: Temporal-Spatial Trade-off Notification\n",
+				    session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         case GST_RTCP_PSFB_TYPE_VBCN:
-            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Video Back Channel Message\n",
-                session_id, is_received ? "Received" : "Sent", media_ssrc);
+            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Video Back Channel Message\n",
+            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
+			g_print("(VBCN)Session %u, %s RTCP feedback for %u: Video Back Channel Message\n",
+				session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         default:
-            GST_CAT_WARNING_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Unknown feedback type %u\n",
-                session_id, is_received ? "Received" : "Sent", media_ssrc, fbtype);
+            //GST_CAT_WARNING_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Unknown feedback type %u\n",
+            //    session_id, is_received ? "Received" : "Sent", media_ssrc, fbtype);
+			g_print("Session %u, %s RTCP feedback for %u: Unknown feedback type %u\n",
+				session_id, is_received ? "Received" : "Sent", media_ssrc, fbtype);
             break;
         }
     }
@@ -3216,7 +3257,21 @@ static gboolean on_sending_rtcp(GObject *session, GstBuffer *buffer, gboolean ea
                 GST_DEBUG_OBJECT(session, "Sending scream feedback: "
                     "highest_seq: %u, n_loss: %u, n_ecn: %u, last_fb_wc: %u",
                     highest_seq, n_loss, n_ecn, last_fb_wc);
-            }
+			}
+			
+			if(pt == GST_RTCP_TYPE_PSFB && fmt == GST_RTCP_PSFB_TYPE_PLI)
+			{
+				gulong sender_ssrc = GPOINTER_TO_UINT(g_hash_table_lookup(rtcp_info, "sender-ssrc"));
+				gulong media_ssrc = GPOINTER_TO_UINT(g_hash_table_lookup(rtcp_info, "media-ssrc"));
+				guint session_id = GPOINTER_TO_UINT(g_hash_table_lookup(rtcp_info, "session-id"));
+				gulong seq = GPOINTER_TO_UINT(g_hash_table_lookup(rtcp_info, "seq"));
+				
+				gst_rtcp_packet_fb_set_type(&rtcp_packet, fmt);
+				gst_rtcp_packet_fb_set_sender_ssrc(&rtcp_packet, media_ssrc);
+				gst_rtcp_packet_fb_set_media_ssrc(&rtcp_packet, sender_ssrc);
+				do_not_suppress = TRUE;
+				//g_print("\n<==============session-id(%u), seq(%u), sender_ssrc(%u), media_ssrc(%u)==============>\n", session_id, seq,  sender_ssrc, media_ssrc);
+			}
 
             next = g_list_next(it);
             g_hash_table_unref(rtcp_info);
@@ -3227,6 +3282,9 @@ static gboolean on_sending_rtcp(GObject *session, GstBuffer *buffer, gboolean ea
 
         gst_rtcp_buffer_unmap(&rtcp_buffer);
     }
+
+	gboolean ret = gst_rtcp_buffer_validate_reduced(buffer);
+	g_warn_if_fail(ret);
 
     g_return_val_if_fail(OWR_IS_TRANSPORT_AGENT(agent), do_not_suppress);
 
@@ -3269,6 +3327,22 @@ static void on_receiving_rtcp(GObject *session, GstBuffer *buffer,
                 print_rtcp_feedback_type(session, session_id, gst_rtcp_packet_fb_get_type(&rtcp_packet),
                     gst_rtcp_packet_fb_get_media_ssrc(&rtcp_packet), packet_type,
                     gst_rtcp_packet_fb_get_fci(&rtcp_packet), TRUE);
+				{
+					GstRTCPFBType fbtype = gst_rtcp_packet_fb_get_type(&rtcp_packet);
+					guint32 sender_ssrc = gst_rtcp_packet_fb_get_sender_ssrc(&rtcp_packet);
+					guint32 media_ssrc = gst_rtcp_packet_fb_get_media_ssrc(&rtcp_packet);
+					guint16 length = gst_rtcp_packet_get_length(&rtcp_packet);
+					gboolean ret0 = gst_rtcp_buffer_validate_reduced(buffer);
+					g_warn_if_fail(ret0);
+
+					if (packet_type == GST_RTCP_TYPE_PSFB && fbtype == GST_RTCP_PSFB_TYPE_PLI)
+					{
+						guint8 *fci = gst_rtcp_packet_fb_get_fci(&rtcp_packet);
+						guint16 fci_len = gst_rtcp_packet_fb_get_fci_length(&rtcp_packet);
+						g_warn_if_fail(fci == NULL && fci_len == 0);
+						g_signal_emit_by_name(agent, "on-recv-psfb-pli", sender_ssrc, media_ssrc);
+					}
+				}
                 break;
             }
         }
@@ -4618,4 +4692,35 @@ static gboolean on_payload_adaptation_request(GstElement *screamqueue, guint pt,
     g_object_unref(payload);
     /* Use adaptation for this payload if not retransmission */
     return (adapt_type == OWR_ADAPTATION_TYPE_SCREAM) && (pt != pt_rtx);
+}
+
+static void on_send_psfb_pli(GObject *agent, gulong sender_ssrc, gulong media_ssrc, OwrSession *session)
+{
+	OwrTransportAgent *transport_agent = NULL;
+	OwrTransportAgentPrivate *priv = NULL;
+	GHashTable *rtcp_info = NULL;
+	GObject *rtp_session = NULL;
+	guint session_id;
+	static gulong counter = 0;
+
+	transport_agent = OWR_TRANSPORT_AGENT(agent);
+	priv = transport_agent->priv;
+	g_assert(transport_agent);
+	g_assert(priv);
+
+	g_object_get(session, "stream-id", &session_id, NULL);
+	g_signal_emit_by_name(priv->rtpbin, "get-internal-session", session_id, &rtp_session);
+
+	rtcp_info = g_hash_table_new(g_str_hash, g_str_equal);
+	g_hash_table_insert(rtcp_info, "pt", GUINT_TO_POINTER(GST_RTCP_TYPE_PSFB));
+	g_hash_table_insert(rtcp_info, "fmt", GUINT_TO_POINTER(GST_RTCP_PSFB_TYPE_PLI));
+	g_hash_table_insert(rtcp_info, "sender-ssrc", GUINT_TO_POINTER(sender_ssrc));
+	g_hash_table_insert(rtcp_info, "media-ssrc", GUINT_TO_POINTER(media_ssrc));
+	g_hash_table_insert(rtcp_info, "session-id", GUINT_TO_POINTER(session_id));
+	g_hash_table_insert(rtcp_info, "seq", GUINT_TO_POINTER(++counter));
+
+	g_mutex_lock(&priv->rtcp_lock);
+	priv->rtcp_list = g_list_append(priv->rtcp_list, rtcp_info);
+	g_mutex_unlock(&priv->rtcp_lock);
+	//g_signal_emit_by_name(rtp_session, "send-rtcp", 20000000);
 }

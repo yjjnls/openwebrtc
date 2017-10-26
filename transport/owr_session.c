@@ -81,6 +81,7 @@ struct _OwrSessionPrivate {
     OwrIceState ice_state, rtp_ice_state, rtcp_ice_state;
     OwrMessageOriginBusSet *message_origin_bus_set;
     guint rtp_port, rtcp_port;
+	guint stream_id;
 };
 
 enum {
@@ -98,6 +99,8 @@ enum {
     PROP_DTLS_KEY,
     PROP_DTLS_PEER_CERTIFICATE,
     PROP_ICE_STATE,
+
+	PROP_STREAM_ID,
 
     N_PROPERTIES
 };
@@ -167,6 +170,10 @@ static void owr_session_set_property(GObject *object, guint property_id, const G
             || g_str_has_prefix(priv->dtls_key, "-----BEGIN RSA PRIVATE KEY-----"));
         break;
 
+	case PROP_STREAM_ID:
+		priv->stream_id = g_value_get_uint(value);
+		break;
+
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -197,6 +204,10 @@ static void owr_session_get_property(GObject *object, guint property_id, GValue 
     case PROP_ICE_STATE:
         g_value_set_enum(value, priv->ice_state);
         break;
+
+	case PROP_STREAM_ID:
+		g_value_set_uint(value, priv->stream_id);
+		break;
 
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
@@ -312,6 +323,10 @@ static void owr_session_class_init(OwrSessionClass *klass)
     obj_properties[PROP_ICE_STATE] = g_param_spec_enum("ice-connection-state",
         "ICE connection state", "The state of the ICE connection",
         OWR_TYPE_ICE_STATE, DEFAULT_ICE_STATE, G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+
+	obj_properties[PROP_STREAM_ID] = g_param_spec_uint("stream-id", "Stream ID",
+		"Stream id this session assigned to",
+		0, G_MAXUINT, 0, G_PARAM_STATIC_STRINGS | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties(gobject_class, N_PROPERTIES, obj_properties);
 
@@ -713,6 +728,7 @@ void _owr_session_set_dtls_peer_certificate(OwrSession *session,
     if (priv->dtls_peer_certificate)
         g_free(priv->dtls_peer_certificate);
     priv->dtls_peer_certificate = g_strdup(certificate);
+	g_print("\n<===\n%s\n===>\n",priv->dtls_peer_certificate);
     g_warn_if_fail(!priv->dtls_peer_certificate
         || g_str_has_prefix(priv->dtls_peer_certificate, "-----BEGIN CERTIFICATE-----"));
     g_object_notify(G_OBJECT(session), "dtls-peer-certificate");
