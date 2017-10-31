@@ -302,7 +302,7 @@ static void owr_payload_init(OwrPayload *payload)
 
 static const gchar *OwrCodecTypeEncoderElementName[] = {"none", "mulawenc", "alawenc", "opusenc", "openh264enc", "vp8enc"};
 static const gchar *OwrCodecTypeDecoderElementName[] = {"none", "mulawdec", "alawdec", "opusdec", "openh264dec", "vp8dec"};
-static const gchar *OwrCodecTypeParserElementName[] = {"none", "none", "none", "none", "h264parse", "none"};
+static const gchar *OwrCodecTypeParserElementName[] = {"none", "none", "none", "opusparse", "h264parse", "none"};
 static const gchar *OwrCodecTypePayElementName[] = {"none", "rtppcmupay", "rtppcmapay", "rtpopuspay", "rtph264pay", "rtpvp8pay"};
 static const gchar *OwrCodecTypeDepayElementName[] = {"none", "rtppcmudepay", "rtppcmadepay", "rtpopusdepay", "rtph264depay", "rtpvp8depay"};
 

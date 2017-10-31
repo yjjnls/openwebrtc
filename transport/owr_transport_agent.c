@@ -2469,7 +2469,10 @@ static void handle_new_send_payload(OwrTransportAgent *transport_agent, OwrMedia
 		}
 		else
 		{
-			sink_pad = gst_element_get_static_pad(payloader, "sink");
+			if (parser)
+				sink_pad = gst_element_get_static_pad(parser, "sink");
+			else
+				sink_pad = gst_element_get_static_pad(payloader, "sink");
 		}
         add_pads_to_bin_and_transport_bin(sink_pad, send_input_bin,
             transport_agent->priv->transport_bin, name);
@@ -2833,17 +2836,30 @@ static void setup_audio_receive_elements(GstPad *new_pad, guint32 session_id, Ow
     rtpdepay = _owr_payload_create_payload_depacketizer(payload);
 
     parser = _owr_payload_create_parser(payload);
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
     decoder = _owr_payload_create_decoder(payload);
-
+#endif
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
     gst_bin_add_many(GST_BIN(receive_output_bin), rtp_capsfilter, rtpdepay,
         decoder, NULL);
+#else
+	gst_bin_add_many(GST_BIN(receive_output_bin), rtp_capsfilter, rtpdepay,
+		NULL);
+#endif
     link_ok = gst_element_link_many(rtp_capsfilter, rtpdepay, NULL);
     if (parser) {
         gst_bin_add(GST_BIN(receive_output_bin), parser);
-        link_ok &= gst_element_link_many(rtpdepay, parser, decoder, NULL);
-    } else
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
+		link_ok &= gst_element_link_many(rtpdepay, parser, decoder, NULL);
+#else
+		link_ok &= gst_element_link_many(rtpdepay, parser, NULL);
+#endif
+	} else
+	{
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
         link_ok &= gst_element_link_many(rtpdepay, decoder, NULL);
-
+#endif
+	}
     g_warn_if_fail(link_ok);
 
     rtp_caps_sink_pad = gst_element_get_static_pad(rtp_capsfilter, "sink");
@@ -2854,15 +2870,22 @@ static void setup_audio_receive_elements(GstPad *new_pad, guint32 session_id, Ow
         return;
     }
     ghost_pad = NULL;
-
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
     sync_ok &= gst_element_sync_state_with_parent(decoder);
+#endif
     if (parser)
         sync_ok &= gst_element_sync_state_with_parent(parser);
     sync_ok &= gst_element_sync_state_with_parent(rtpdepay);
     sync_ok &= gst_element_sync_state_with_parent(rtp_capsfilter);
     g_warn_if_fail(sync_ok);
-
+#ifdef ENABLE_RECEIVE_OUTPUT_BIN_DECODER
     pad = gst_element_get_static_pad(decoder, "src");
+#else
+	if (parser)
+		pad = gst_element_get_static_pad(parser, "src");
+	else
+		pad = gst_element_get_static_pad(rtpdepay, "src");
+#endif
     pad_name = g_strdup_printf("audio_raw_src_%u", session_id);
     add_pads_to_bin_and_transport_bin(pad, receive_output_bin,
         transport_agent->priv->transport_bin, pad_name);
