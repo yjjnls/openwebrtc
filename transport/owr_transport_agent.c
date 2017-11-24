@@ -81,6 +81,7 @@ GST_DEBUG_CATEGORY_EXTERN(_owrsession_debug);
 #define GST_CAT_DEFAULT _owrtransportagent_debug
 
 #define DEFAULT_ICE_CONTROLLING_MODE TRUE
+#define DEFAULT_SIGNALLING_INCOMING_FEEDBACK TRUE
 #define GST_RTCP_RTPFB_TYPE_SCREAM 18
 #define TEST_RTX_SEND
 //#define ENABLE_DROP_PACKET
@@ -89,6 +90,7 @@ GST_DEBUG_CATEGORY_EXTERN(_owrsession_debug);
 enum {
     PROP_0,
     PROP_ICE_CONTROLLING_MODE,
+	PROP_SIGNALLING_INCOMING_FEEDBACK,
     N_PROPERTIES
 };
 
@@ -178,6 +180,7 @@ struct _OwrTransportAgentPrivate {
     GRWLock data_channels_rw_mutex;
     gboolean data_session_added, data_session_established;
     OwrMessageOriginBusSet *message_origin_bus_set;
+	gboolean signalling_incoming_feedback;
 };
 
 typedef struct {
@@ -361,6 +364,10 @@ static void owr_transport_agent_class_init(OwrTransportAgentClass *klass)
     obj_properties[PROP_ICE_CONTROLLING_MODE] = g_param_spec_boolean("ice-controlling-mode",
         "Ice controlling mode", "Whether the ice agent is in controlling mode",
         DEFAULT_ICE_CONTROLLING_MODE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+	obj_properties[PROP_SIGNALLING_INCOMING_FEEDBACK] = g_param_spec_boolean("signalling-incoming-feedback",
+		"Signalling Incoming Feedback", "Whether to signal rtcp incoming feedback(pli, fir) for deeply processing",
+		DEFAULT_SIGNALLING_INCOMING_FEEDBACK, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
     gobject_class->set_property = owr_transport_agent_set_property;
     gobject_class->get_property = owr_transport_agent_get_property;
@@ -569,6 +576,9 @@ static void owr_transport_agent_set_property(GObject *object, guint property_id,
     case PROP_ICE_CONTROLLING_MODE:
         priv->ice_controlling_mode = g_value_get_boolean(value);
         break;
+	case PROP_SIGNALLING_INCOMING_FEEDBACK:
+		priv->signalling_incoming_feedback = g_value_get_boolean(value);
+		break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -590,6 +600,9 @@ static void owr_transport_agent_get_property(GObject *object, guint property_id,
     case PROP_ICE_CONTROLLING_MODE:
         g_value_set_boolean(value, priv->ice_controlling_mode);
         break;
+	case PROP_SIGNALLING_INCOMING_FEEDBACK:
+		g_value_set_boolean(value, priv->signalling_incoming_feedback);
+		break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID(object, property_id, pspec);
         break;
@@ -4624,8 +4637,10 @@ static void on_feedback_rtcp(GObject *session, guint type, guint fbtype, guint s
         gst_object_unref(scream_queue);
     }
 	else if (type == GST_RTCP_TYPE_PSFB && fbtype == GST_RTCP_PSFB_TYPE_PLI){
-		g_warn_if_fail(fci == NULL);
-		g_signal_emit_by_name(transport_agent, "incoming-feedback", type, fbtype, sender_ssrc, media_ssrc);
+		if(transport_agent->priv->signalling_incoming_feedback){
+		    g_warn_if_fail(fci == NULL);
+		    g_signal_emit_by_name(transport_agent, "incoming-feedback", type, fbtype, sender_ssrc, media_ssrc);
+		}
 	}
 }
 
