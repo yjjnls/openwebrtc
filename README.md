@@ -2,6 +2,7 @@
 
 A flexible, mobile-first, cross-platform WebRTC client framework based on [GStreamer](http://gstreamer.freedesktop.org). OpenWebRTC currently supports iOS, Android, Mac OS X and Linux. Windows support is quite doable too if needed.
 
+Lite version only for native dev ( C/C++ only)
 ## Releases
 [Downloadable binary releases are available here](https://github.com/EricssonResearch/openwebrtc/releases).
 
