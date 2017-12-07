@@ -34,9 +34,19 @@ add_library (openwebrtc-lite-${OWR_API_VERSION} SHARED ${_SOURCES} ${_HEADERS} o
 #autocmake_add_library(openwebrtc-lite-${OWR_API_VERSION} SHARED
 #                      MODULES ${_modules}
 #					  SOURCES ${_SOURCES} ${_HEADERS} openwebrtc.def )
-target_link_libraries(openwebrtc-lite-${OWR_API_VERSION}  
+if (MSVC)
+  set( WHOLE_ARCHIVE_BEGIN  )
+  set( WHOLE_ARCHIVE_END    )
+else()
+  set( WHOLE_ARCHIVE_BEGIN	"-Wl,--whole-archive"  )
+  set( WHOLE_ARCHIVE_END	"-Wl,--no-whole-archive"  )
+endif()
+
+target_link_libraries(openwebrtc-lite-${OWR_API_VERSION} 
+		  ${WHOLE_ARCHIVE_BEGIN} 
           openwebrtc_transport-lite 
 		  openwebrtc_local-lite
+		  ${WHOLE_ARCHIVE_END}
 		  ${this_LIBS}
 		  )
 

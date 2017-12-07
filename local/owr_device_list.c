@@ -186,40 +186,54 @@ static void finish_pa_list(AudioListContext *context)
 
 static gboolean enumerate_audio_source_devices(GClosure *callback)
 {
-    AudioListContext *context;
+    // AudioListContext *context;
 
-    context = g_slice_new0(AudioListContext);
+    // context = g_slice_new0(AudioListContext);
 
-    context->callback = callback;
+    // context->callback = callback;
 
-    context->mainloop = pa_glib_mainloop_new(_owr_get_main_context());
+    // context->mainloop = pa_glib_mainloop_new(_owr_get_main_context());
 
-    if (!context->mainloop) {
-        g_warning("PulseAudio: failed to create glib mainloop");
-        goto cleanup;
-    }
+    // if (!context->mainloop) {
+        // g_warning("PulseAudio: failed to create glib mainloop");
+        // goto cleanup;
+    // }
 
-    context->pa_context = pa_context_new(pa_glib_mainloop_get_api(context->mainloop), "Owr");
+    // context->pa_context = pa_context_new(pa_glib_mainloop_get_api(context->mainloop), "Owr");
 
-    if (!context->pa_context) {
-        g_warning("PulseAudio: failed to create context");
-        goto cleanup_mainloop;
-    }
+    // if (!context->pa_context) {
+        // g_warning("PulseAudio: failed to create context");
+        // goto cleanup_mainloop;
+    // }
 
-    pa_context_set_state_callback(context->pa_context,
-        (pa_context_notify_cb_t) on_pulse_context_state_change, context);
-    pa_context_connect(context->pa_context, NULL, 0, NULL);
+    // pa_context_set_state_callback(context->pa_context,
+        // (pa_context_notify_cb_t) on_pulse_context_state_change, context);
+    // pa_context_connect(context->pa_context, NULL, 0, NULL);
 
-done:
-    return FALSE;
+// done:
+    // return FALSE;
 
-cleanup_mainloop:
-    pa_glib_mainloop_free(context->mainloop);
+// cleanup_mainloop:
+    // pa_glib_mainloop_free(context->mainloop);
 
-cleanup:
-    finish_pa_list(context);
+// cleanup:
+    // finish_pa_list(context);
 
-    goto done;
+    // goto done;
+	OwrLocalMediaSource *source;
+	GList *sources = NULL;
+#ifndef ENABLE_AUDIO_NET_SOURCE
+	source = _owr_local_media_source_new_cached(0, "audio0",
+		OWR_MEDIA_TYPE_AUDIO, OWR_SOURCE_TYPE_TEST);
+#else
+	source = _owr_local_media_source_new_cached(0, "audio0",
+		OWR_MEDIA_TYPE_AUDIO, OWR_SOURCE_TYPE_NET);
+#endif
+	sources = g_list_prepend(sources, source);
+	sources = g_list_reverse(sources);
+	_owr_utils_call_closure_with_list(callback, sources);
+	g_list_free_full(sources, g_object_unref);
+	return FALSE;
 }
 
 static void on_pulse_context_state_change(pa_context *pa_context, AudioListContext *context)
@@ -374,28 +388,37 @@ static OwrLocalMediaSource *maybe_create_source_from_filename(const gchar *name)
 
 static gboolean enumerate_video_source_devices(GClosure *callback)
 {
-    OwrLocalMediaSource *source;
-    GList *sources = NULL;
-    GError *error = NULL;
-    GDir *dev_dir;
-    const gchar *filename;
+    // OwrLocalMediaSource *source;
+    // GList *sources = NULL;
+    // GError *error = NULL;
+    // GDir *dev_dir;
+    // const gchar *filename;
 
-    dev_dir = g_dir_open("/dev", 0, &error);
+    // dev_dir = g_dir_open("/dev", 0, &error);
 
-    while ((filename = g_dir_read_name(dev_dir))) {
-        source = maybe_create_source_from_filename(filename);
+    // while ((filename = g_dir_read_name(dev_dir))) {
+        // source = maybe_create_source_from_filename(filename);
 
-        if (source)
-            sources = g_list_prepend(sources, source);
-    }
+        // if (source)
+            // sources = g_list_prepend(sources, source);
+    // }
 
-    g_dir_close(dev_dir);
+    // g_dir_close(dev_dir);
 
-    sources = g_list_reverse(sources);
-    _owr_utils_call_closure_with_list(callback, sources);
-    g_list_free_full(sources, g_object_unref);
+    // sources = g_list_reverse(sources);
+    // _owr_utils_call_closure_with_list(callback, sources);
+    // g_list_free_full(sources, g_object_unref);
 
-    return FALSE;
+    // return FALSE;
+	OwrLocalMediaSource *source;
+	GList *sources = NULL;
+	source = _owr_local_media_source_new_cached(0, "video0",
+		OWR_MEDIA_TYPE_VIDEO, OWR_SOURCE_TYPE_NET);
+	sources = g_list_prepend(sources, source);
+	sources = g_list_reverse(sources);
+	_owr_utils_call_closure_with_list(callback, sources);
+	g_list_free_full(sources, g_object_unref);
+	return FALSE;
 }
 
 #endif /*(defined(__linux__) && !defined(__ANDROID__))*/
