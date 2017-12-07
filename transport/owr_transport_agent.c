@@ -74,7 +74,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define ENABLE_SCREAMQUEUE TRUE
+#define ENABLE_SCREAMQUEUE FALSE
 
 GST_DEBUG_CATEGORY_EXTERN(_owrtransportagent_debug);
 GST_DEBUG_CATEGORY_EXTERN(_owrsession_debug);
@@ -3041,8 +3041,8 @@ static GstElement * on_rtpbin_request_aux_sender(G_GNUC_UNUSED GstElement *rtpbi
 		GstStructure *ssrc_map;
 
 
-	g_object_set(rtxsend, "max-size-time", 3000, NULL);
-	g_object_set(rtxsend, "max-size-packets", 20, NULL);
+	g_object_set(rtxsend, "max-size-time", 60000, NULL);
+	//g_object_set(rtxsend, "max-size-packets", 20, NULL);
 	//g_timeout_add(10000, (GSourceFunc)on_print_rtprtxsend_info, rtxsend);
 
 	guint send_ssrc = 0;
