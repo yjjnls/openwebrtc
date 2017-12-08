@@ -436,6 +436,8 @@ static void maybe_start_renderer(OwrMediaRenderer *renderer)
 		}
 
 		source_queue = gst_element_factory_make("queue", "source-output-queue");
+		g_object_set(source_queue, "max-size-buffers", 3, "max-size-bytes", 0,
+			"max-size-time", G_GUINT64_CONSTANT(0), NULL);
 		gst_bin_add_many(GST_BIN(source_bin), inter_source, source_queue, NULL);
 		LINK_ELEMENTS(inter_source, source_queue);
 
@@ -449,6 +451,8 @@ static void maybe_start_renderer(OwrMediaRenderer *renderer)
 		sink_bin = gst_bin_new("sink-bin");
 		
 		sink_queue = gst_element_factory_make("queue", "sink-input-queue");
+		g_object_set(sink_queue, "max-size-buffers", 3, "max-size-bytes", 0,
+			"max-size-time", G_GUINT64_CONSTANT(0), NULL);
 		gst_bin_add_many(GST_BIN(sink_bin), sink_queue, inter_sink, NULL);
 		gst_element_sync_state_with_parent(sink_queue);
 		gst_element_sync_state_with_parent(inter_sink);

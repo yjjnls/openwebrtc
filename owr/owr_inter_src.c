@@ -76,6 +76,8 @@ static void owr_inter_src_init(OwrInterSrc *self)
     GST_OBJECT_FLAG_SET(self, GST_ELEMENT_FLAG_SOURCE);
 
     self->queue = gst_element_factory_make("queue", NULL);
+	g_object_set(self->queue, "max-size-buffers", 3, "max-size-bytes", 0,
+		"max-size-time", G_GUINT64_CONSTANT(0), NULL);
     gst_bin_add(GST_BIN(self), self->queue);
 
     srcpad = gst_element_get_static_pad(self->queue, "src");

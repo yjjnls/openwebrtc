@@ -292,8 +292,14 @@ static GstElement *owr_media_source_request_source_default(OwrMediaSource *media
     }
     CREATE_ELEMENT_WITH_ID(queue_post, "queue", "source-output-queue", source_id);
 
-    CREATE_ELEMENT_WITH_ID(sink_queue, "queue", "sink-queue", source_id);
+	g_object_set(queue_pre, "max-size-buffers", 3, "max-size-bytes", 0,
+		"max-size-time", G_GUINT64_CONSTANT(0), NULL);
+	g_object_set(queue_post, "max-size-buffers", 3, "max-size-bytes", 0,
+		"max-size-time", G_GUINT64_CONSTANT(0), NULL);
 
+    CREATE_ELEMENT_WITH_ID(sink_queue, "queue", "sink-queue", source_id);
+	g_object_set(sink_queue, "max-size-buffers", 3, "max-size-bytes", 0,
+		"max-size-time", G_GUINT64_CONSTANT(0), NULL);
     
     switch (media_type) {
     case OWR_MEDIA_TYPE_AUDIO:

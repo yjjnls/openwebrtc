@@ -83,7 +83,7 @@ GST_DEBUG_CATEGORY_EXTERN(_owrsession_debug);
 #define DEFAULT_ICE_CONTROLLING_MODE TRUE
 #define DEFAULT_SIGNALLING_INCOMING_FEEDBACK TRUE
 #define GST_RTCP_RTPFB_TYPE_SCREAM 18
-#define TEST_RTX_SEND
+//#define TEST_RTX_SEND
 //#define ENABLE_DROP_PACKET
 //#define ENABLE_RTPRTXSEND_INFO_PRINT
 //#define ENABLE_RECEIVE_OUTPUT_BIN_DECODER
@@ -535,7 +535,7 @@ static void owr_transport_agent_init(OwrTransportAgent *transport_agent)
     g_signal_connect(priv->rtpbin, "request-pt-map", G_CALLBACK(on_rtpbin_request_pt_map), transport_agent);
     g_signal_connect(priv->rtpbin, "request-aux-sender", G_CALLBACK(on_rtpbin_request_aux_sender), transport_agent);
     g_signal_connect(priv->rtpbin, "request-aux-receiver", G_CALLBACK(on_rtpbin_request_aux_receiver), transport_agent);
-    g_signal_connect(priv->rtpbin, "on-ssrc-active", G_CALLBACK(on_ssrc_active), transport_agent);
+    //g_signal_connect(priv->rtpbin, "on-ssrc-active", G_CALLBACK(on_ssrc_active), transport_agent);
 	g_signal_connect(priv->rtpbin, "on-new-sender-ssrc", G_CALLBACK(on_new_sender_ssrc), transport_agent);
     g_signal_connect(priv->rtpbin, "new-jitterbuffer", G_CALLBACK(on_new_jitterbuffer), transport_agent);
 
@@ -1612,6 +1612,8 @@ static void prepare_transport_bin_send_elements(OwrTransportAgent *transport_age
 	else
 	{
 		scream_queue = gst_element_factory_make("queue", "screamqueue");
+		g_object_set(scream_queue, "max-size-buffers", 3, "max-size-bytes", 0,
+			"max-size-time", G_GUINT64_CONSTANT(0), NULL);
 	}
     gst_bin_add(GST_BIN(send_output_bin), scream_queue);
 
@@ -2309,7 +2311,6 @@ static void handle_new_send_payload(OwrTransportAgent *transport_agent, OwrMedia
     g_free(name);
 
     link_rtpbin_to_send_output_bin(transport_agent, stream_id, TRUE, TRUE);
-
     g_object_get(payload, "media-type", &media_type, NULL);
     media_source = _owr_media_session_get_send_source(media_session);
     g_object_get(media_source, "type", &source_type, NULL);
@@ -3040,18 +3041,19 @@ static GstElement * on_rtpbin_request_aux_sender(G_GNUC_UNUSED GstElement *rtpbi
 		GstStructure *ssrc_map;
 
 
-	g_object_set(rtxsend, "max-size-time", 60000, NULL);
-	g_object_set(rtxsend, "max-size-packets", 4000, NULL);
+	g_object_set(rtxsend, "max-size-time", 3000, NULL);
+	g_object_set(rtxsend, "max-size-packets", 20, NULL);
 	//g_timeout_add(10000, (GSourceFunc)on_print_rtprtxsend_info, rtxsend);
 
 	guint send_ssrc = 0;
 	gchar *cname = NULL;
 	g_object_get(media_session, "send-ssrc", &send_ssrc, "cname", &cname, NULL);
 	g_message("on_rtpbin_request_aux_sender@send-ssrc(%lld),cname(%s)\n", send_ssrc, cname);
+	guint rtx_ssrc = GPOINTER_TO_UINT(g_object_get_data(media_session, "rtx-ssrc"));
 	
 	ssrc_map = gst_structure_new_empty("application/x-rtp-ssrc-map");
 	tmp = g_strdup_printf("%u", send_ssrc);
-	gst_structure_set(ssrc_map, tmp, G_TYPE_UINT, (guint)2231627014, NULL);
+	gst_structure_set(ssrc_map, tmp, G_TYPE_UINT, (guint)rtx_ssrc, NULL);
 	g_free(tmp);
 	g_object_set(rtxsend, "ssrc-map", ssrc_map, NULL);
 	gst_structure_free(ssrc_map);
@@ -3112,15 +3114,15 @@ static void print_rtcp_feedback_type(GObject *session, guint session_id,
     gboolean is_received)
 {
     if (fbtype == GST_RTCP_FB_TYPE_INVALID) {
-        //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Invalid type\n",
-        //    session_id, is_received ? "Received" : "Sent", media_ssrc);
-		g_print("(INVALID)Session %u, %s RTCP feedback for %u: Invalid type\n",
-			    session_id, is_received ? "Received" : "Sent", media_ssrc);
+        GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Invalid type\n",
+            session_id, is_received ? "Received" : "Sent", media_ssrc);
+		//g_print("(INVALID)Session %u, %s RTCP feedback for %u: Invalid type\n",
+		//	    session_id, is_received ? "Received" : "Sent", media_ssrc);
     } else if (packet_type == GST_RTCP_TYPE_RTPFB) {
         switch (fbtype) {
         case GST_RTCP_RTPFB_TYPE_NACK:
-            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Generic NACK\n",
-            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
+            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Generic NACK\n",
+                session_id, is_received ? "Received" : "Sent", media_ssrc);
 			//g_print("(NACK %u )Session %u, %s RTCP feedback for %u : Generic NACK\n",
 			//	fci ? GST_READ_UINT32_BE(fci) : 0,
 			//	session_id, is_received ? "Received" : "Sent", media_ssrc);
@@ -3137,34 +3139,34 @@ static void print_rtcp_feedback_type(GObject *session, guint session_id,
 #endif
             break;
         case GST_RTCP_RTPFB_TYPE_TMMBR:
-            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Request\n",
-            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
-			g_print("(TMMBR)Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Request\n",
-				session_id, is_received ? "Received" : "Sent", media_ssrc);
+            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Request\n",
+                session_id, is_received ? "Received" : "Sent", media_ssrc);
+			//g_print("(TMMBR)Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Request\n",
+			//	session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         case GST_RTCP_RTPFB_TYPE_TMMBN:
-            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Notification\n",
-            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
-			g_print("(TMMBN)Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Notification\n",
-				session_id, is_received ? "Received" : "Sent", media_ssrc);
+            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Notification\n",
+                session_id, is_received ? "Received" : "Sent", media_ssrc);
+			//g_print("(TMMBN)Session %u, %s RTCP feedback for %u: Temporary Maximum Media Stream Bit Rate Notification\n",
+			//	session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         case GST_RTCP_RTPFB_TYPE_RTCP_SR_REQ:
-            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Request an SR packet for early synchronization\n",
-            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
-			g_print("(SR_REQ)Session %u, %s RTCP feedback for %u: Request an SR packet for early synchronization\n",
-				session_id, is_received ? "Received" : "Sent", media_ssrc);
+            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Request an SR packet for early synchronization\n",
+                session_id, is_received ? "Received" : "Sent", media_ssrc);
+			//g_print("(SR_REQ)Session %u, %s RTCP feedback for %u: Request an SR packet for early synchronization\n",
+			//	session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         case GST_RTCP_RTPFB_TYPE_SCREAM:
-            //GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: SCReAM\n",
-            //    session_id, is_received ? "Received" : "Sent", media_ssrc);
-			g_print("(SCREAM)Session %u, %s RTCP feedback for %u: SCReAM\n",
-				session_id, is_received ? "Received" : "Sent", media_ssrc);
+            GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: SCReAM\n",
+                session_id, is_received ? "Received" : "Sent", media_ssrc);
+			//g_print("(SCREAM)Session %u, %s RTCP feedback for %u: SCReAM\n",
+			//	session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         default:
-            //GST_CAT_WARNING_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Unknown feedback type %u\n",
-            //    session_id, is_received ? "Received" : "Sent", media_ssrc, fbtype);
-			g_print("(Unknown)Session %u, %s RTCP feedback for %u: Unknown feedback type %u\n",
-				session_id, is_received ? "Received" : "Sent", media_ssrc, fbtype);
+            GST_CAT_WARNING_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Unknown feedback type %u\n",
+                session_id, is_received ? "Received" : "Sent", media_ssrc, fbtype);
+			//g_print("(Unknown)Session %u, %s RTCP feedback for %u: Unknown feedback type %u\n",
+			//	session_id, is_received ? "Received" : "Sent", media_ssrc, fbtype);
             break;
         }
     } else if (packet_type == GST_RTCP_TYPE_PSFB) {
@@ -3173,8 +3175,8 @@ static void print_rtcp_feedback_type(GObject *session, guint session_id,
 
             GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Picture Loss Indication\n",
                 session_id, is_received ? "Received" : "Sent", media_ssrc);
-			//g_print("(PLI)Session %u, %s RTCP feedback for %u: Picture Loss Indication\n",
-			//	session_id, is_received ? "Received" : "Sent", media_ssrc);
+			g_print("(PLI)Session %u, %s RTCP feedback for %u: Picture Loss Indication\n",
+				session_id, is_received ? "Received" : "Sent", media_ssrc);
             break;
         case GST_RTCP_PSFB_TYPE_SLI:
             GST_CAT_INFO_OBJECT(_owrsession_debug, session, "Session %u, %s RTCP feedback for %u: Slice Loss Indication\n",
@@ -3378,7 +3380,7 @@ static gboolean on_sending_rtcp(GObject *session, GstBuffer *buffer, gboolean ea
 
     g_object_get(session, "sources", &sources, NULL);
     source = g_value_get_object(g_value_array_get_nth(sources, 0));
-    prepare_rtcp_stats(media_session, source);
+    //prepare_rtcp_stats(media_session, source);
     g_value_array_free(sources);
     g_object_unref(media_session);
 
@@ -3431,7 +3433,7 @@ static void on_receiving_rtcp(GObject *session, GstBuffer *buffer,
 				//}
 			}
 #endif
-            //print_rtcp_type(session, session_id, packet_type);
+            print_rtcp_type(session, session_id, packet_type);
             if (packet_type == GST_RTCP_TYPE_PSFB || packet_type == GST_RTCP_TYPE_RTPFB) {
                 print_rtcp_feedback_type(session, session_id, gst_rtcp_packet_fb_get_type(&rtcp_packet),
                     gst_rtcp_packet_fb_get_media_ssrc(&rtcp_packet), packet_type,
@@ -4233,7 +4235,6 @@ static void handle_data_channel_message(OwrTransportAgent *transport_agent, guin
     if (data_channel_info->state != OWR_DATA_CHANNEL_STATE_OPEN) {
         /* This should never happen */
         g_critical("Received message before datachannel was established.");
-        g_rw_lock_reader_unlock(&data_channel_info->rw_mutex);
         goto end;
     }
 

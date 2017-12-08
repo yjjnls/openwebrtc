@@ -109,6 +109,10 @@ void owr_message_origin_post_message(OwrMessageOrigin *origin, OwrMessageType ty
     GST_TRACE_OBJECT(origin, "posting message %p", message);
 
     bus_set = owr_message_origin_get_bus_set(origin);
+	if (bus_set == NULL)
+	{
+		_owr_message_unref(message);
+	}
     g_return_if_fail(bus_set);
 
     g_mutex_lock(&bus_set->mutex);
