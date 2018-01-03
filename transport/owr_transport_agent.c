@@ -694,8 +694,9 @@ void owr_transport_agent_add_session(OwrTransportAgent *agent, OwrSession *sessi
     args = _owr_create_schedule_table(OWR_MESSAGE_ORIGIN(agent));
     g_hash_table_insert(args, "transport_agent", agent);
     g_hash_table_insert(args, "session", session);
-
-    g_object_ref(agent);
+	
+	//TODO: to find right way to unref
+    //g_object_ref(agent);
 
 	//g_signal_connect_after(agent, "on-send-psfb-pli", G_CALLBACK(on_send_psfb_pli), session);
 	//g_signal_connect_after(agent, "on-send-psfb-fir", G_CALLBACK(on_send_psfb_fir), session);
@@ -1966,8 +1967,8 @@ static void on_new_candidate(NiceAgent *nice_agent, NiceCandidate *nice_candidat
     g_return_if_fail(nice_agent);
     g_return_if_fail(OWR_IS_TRANSPORT_AGENT(transport_agent));
     g_return_if_fail(nice_candidate);
-
-    g_object_ref(transport_agent);
+	//TODO: to find right way to unref
+    //g_object_ref(transport_agent);
     args = _owr_create_schedule_table(OWR_MESSAGE_ORIGIN(transport_agent));
     g_hash_table_insert(args, "transport_agent", transport_agent);
     g_hash_table_insert(args, "nice_candidate", nice_candidate_copy(nice_candidate));
