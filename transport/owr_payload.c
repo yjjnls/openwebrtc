@@ -188,6 +188,8 @@ static GList *h264_decoders = NULL;
 static GList *h264_encoders = NULL;
 static GList *vp8_decoders = NULL;
 static GList *vp8_encoders = NULL;
+static GList *h265_decoders = NULL;
+static GList *h265_encoders = NULL;
 
 static gpointer owr_payload_detect_codecs(gpointer data)
 {
@@ -214,6 +216,11 @@ static gpointer owr_payload_detect_codecs(gpointer data)
     vp8_encoders = gst_element_factory_list_filter(encoder_factories, caps, GST_PAD_SRC, FALSE);
     gst_caps_unref(caps);
 
+	caps = gst_caps_new_empty_simple("video/x-h265");
+	h265_decoders = gst_element_factory_list_filter(decoder_factories, caps, GST_PAD_SINK, FALSE);
+	h265_encoders = gst_element_factory_list_filter(encoder_factories, caps, GST_PAD_SRC, FALSE);
+	gst_caps_unref(caps);
+
     gst_plugin_feature_list_free(decoder_factories);
     gst_plugin_feature_list_free(encoder_factories);
 
@@ -221,6 +228,8 @@ static gpointer owr_payload_detect_codecs(gpointer data)
     h264_encoders = g_list_sort(h264_encoders, gst_plugin_feature_rank_compare_func);
     vp8_decoders = g_list_sort(vp8_decoders, gst_plugin_feature_rank_compare_func);
     vp8_encoders = g_list_sort(vp8_encoders, gst_plugin_feature_rank_compare_func);
+	h265_decoders = g_list_sort(h265_decoders, gst_plugin_feature_rank_compare_func);
+	h265_encoders = g_list_sort(h265_encoders, gst_plugin_feature_rank_compare_func);
 
     return NULL;
 }
@@ -300,11 +309,11 @@ static void owr_payload_init(OwrPayload *payload)
 /* Private methods */
 
 
-static const gchar *OwrCodecTypeEncoderElementName[] = {"none", "mulawenc", "alawenc", "opusenc", "openh264enc", "vp8enc"};
-static const gchar *OwrCodecTypeDecoderElementName[] = {"none", "mulawdec", "alawdec", "opusdec", "openh264dec", "vp8dec"};
-static const gchar *OwrCodecTypeParserElementName[] = {"none", "none", "none", "opusparse", "h264parse", "none"};
-static const gchar *OwrCodecTypePayElementName[] = {"none", "rtppcmupay", "rtppcmapay", "rtpopuspay", "rtph264pay", "rtpvp8pay"};
-static const gchar *OwrCodecTypeDepayElementName[] = {"none", "rtppcmudepay", "rtppcmadepay", "rtpopusdepay", "rtph264depay", "rtpvp8depay"};
+static const gchar *OwrCodecTypeEncoderElementName[] = {"none", "mulawenc", "alawenc", "opusenc", "openh264enc", "vp8enc", "none"};
+static const gchar *OwrCodecTypeDecoderElementName[] = {"none", "mulawdec", "alawdec", "opusdec", "openh264dec", "vp8dec", "avdec_h265"};
+static const gchar *OwrCodecTypeParserElementName[] = {"none", "none", "none", "opusparse", "h264parse", "none", "h265parse"};
+static const gchar *OwrCodecTypePayElementName[] = {"none", "rtppcmupay", "rtppcmapay", "rtpopuspay", "rtph264pay", "rtpvp8pay", "rtph265pay"};
+static const gchar *OwrCodecTypeDepayElementName[] = {"none", "rtppcmudepay", "rtppcmadepay", "rtpopusdepay", "rtph264depay", "rtpvp8depay", "rtph265depay"};
 
 static guint evaluate_bitrate_from_payload(OwrPayload *payload)
 {
@@ -450,6 +459,10 @@ GstElement * _owr_payload_create_encoder(OwrPayload *payload)
         g_object_bind_property(payload, "bitrate", encoder, "target-bitrate", G_BINDING_SYNC_CREATE);
         g_object_set(payload, "bitrate", evaluate_bitrate_from_payload(payload), NULL);
         break;
+	case OWR_CODEC_TYPE_H265:
+		encoder = try_codecs(h265_encoders, "encoder");
+		g_return_val_if_fail(encoder, NULL);
+		break;
     default:
         element_name = g_strdup_printf("encoder_%s_%u", OwrCodecTypeEncoderElementName[payload->priv->codec_type], get_unique_id());
         encoder = gst_element_factory_make(OwrCodecTypeEncoderElementName[payload->priv->codec_type], element_name);
@@ -477,6 +490,10 @@ GstElement * _owr_payload_create_decoder(OwrPayload *payload)
         decoder = try_codecs(vp8_decoders, "decoder");
         g_return_val_if_fail(decoder, NULL);
         break;
+	case OWR_CODEC_TYPE_H265:
+		decoder = try_codecs(h265_decoders, "decoder");
+		g_return_val_if_fail(decoder, NULL);
+		break;
     default:
         element_name = g_strdup_printf("decoder_%s_%u", OwrCodecTypeDecoderElementName[payload->priv->codec_type], get_unique_id());
         decoder = gst_element_factory_make(OwrCodecTypeDecoderElementName[payload->priv->codec_type], element_name);
@@ -505,6 +522,9 @@ GstElement * _owr_payload_create_parser(OwrPayload *payload)
     switch (payload->priv->codec_type) {
     case OWR_CODEC_TYPE_H264:
         g_object_set(parser, "disable-passthrough", TRUE, NULL);
+        break;
+    case OWR_CODEC_TYPE_H265:
+		g_object_set(parser, "disable-passthrough", TRUE, NULL);
         break;
     default:
         break;
@@ -539,6 +559,8 @@ GstElement * _owr_payload_create_payload_packetizer(OwrPayload *payload)
     case OWR_MEDIA_TYPE_VIDEO:
         if (payload->priv->codec_type == OWR_CODEC_TYPE_H264)
             g_object_set(pay, "config-interval", 1, NULL);
+		if (payload->priv->codec_type == OWR_CODEC_TYPE_H265)
+			g_object_set(pay, "config-interval", 1, NULL);
         break;
 
     default:
@@ -606,6 +628,10 @@ GstCaps * _owr_payload_create_rtp_caps(OwrPayload *payload)
     case OWR_CODEC_TYPE_VP8:
         encoding_name = "VP8-DRAFT-IETF-01";
         break;
+
+	case OWR_CODEC_TYPE_H265:
+		encoding_name = "H265";
+		break;
 
     default:
         g_return_val_if_reached(NULL);
@@ -684,6 +710,8 @@ GstCaps * _owr_payload_create_raw_caps(OwrPayload *payload)
 #ifdef __APPLE__
         if (priv->codec_type == OWR_CODEC_TYPE_H264)
           gst_caps_set_features(caps, 0, gst_caps_features_new_any());
+		if (priv->codec_type == OWR_CODEC_TYPE_H265)
+			gst_caps_set_features(caps, 0, gst_caps_features_new_any());
 #endif
         gst_caps_set_simple(caps, "width", G_TYPE_INT, width > 0 ? width : LIMITED_WIDTH, NULL);
         gst_caps_set_simple(caps, "height", G_TYPE_INT, height > 0 ? height : LIMITED_HEIGHT, NULL);
@@ -717,6 +745,13 @@ GstCaps * _owr_payload_create_encoded_caps(OwrPayload *payload)
         break;
     case OWR_CODEC_TYPE_VP8:
         caps = gst_caps_new_empty_simple("video/x-vp8");
+        break;
+    case OWR_CODEC_TYPE_H265:
+		caps = gst_caps_new_simple("video/x-h265",
+			"profile", G_TYPE_STRING, "baseline",
+			NULL);
+		caps = gst_caps_merge_structure(caps, gst_structure_new("video/x-h265",
+			"profile", G_TYPE_STRING, "constrained-baseline", NULL));
         break;
     default:
         caps = gst_caps_new_any();
